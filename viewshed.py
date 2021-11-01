@@ -72,7 +72,7 @@ class Viewshed():
         '''
         assert n_points == translation_matrix.max()
         if poi_elev_type == 1:
-            assert len(raster_np.shape) == 3
+            assert len(poi_coords[0]) == 3
             assert poi_elev == 0
         self.reset_memory()
         n_vs = len(poi_coords)

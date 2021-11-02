@@ -111,6 +111,25 @@ class BS_Analysis():
             cost_ant = self.c_ant * self.scalars[:, :, :, :, :, 3]
             self.costs = 1e-6 * (cost_buildings + cost_ant)  # In Millions
 
+    def relative_coverage_gnuplot_wcnc(self):
+        coverages = np.zeros((len(self.denss), len(self.ratio), len(
+            self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
+        for ndx in range(len(self.ncovs)):
+            coverages[:, :, :, :, :, ndx] = self.areas[:, :,
+                                                       :, :, :, ndx+1] / self.areas[:, :, :, :, :, 0]
+        # np.zeros((len(self.denss), len(self.ratio), len(
+        #     self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)+1))
+        coverage_gnuplot = np.zeros(shape=(len(self.denss), len(self.ratio)*2+1,
+                                    len(self.ncovs)))
+        coverage_gnuplot[:, 0] = np.array([self.denss]*(len(self.ncovs))).T
+        coverage_gnuplot[:, 1:len(self.ratio)+1,
+                         :] = coverages.mean(axis=2)[:, :, 0, 0, :]
+        coverage_gnuplot[:, len(self.ratio)+1:,
+                         :] = conf_int(coverages, axis=2)[:, :, 0, 0, :]
+        for ndx, ncov in enumerate(self.ncovs):
+            np.savetxt(f'{self.base_dir}/wcnc/urban_coverage_{ncov}.csv',
+                       coverage_gnuplot[:, :, ndx])
+
     def analyize_antennaperbs(self):
         meaned_d = self.dists.sum(axis=2)
         plt.figure(figsize=(5*len(self.denss), 5*len(self.ratio)))
@@ -206,8 +225,6 @@ class BS_Analysis():
         # Normalized coverage
         coverages = np.zeros((len(self.denss), len(self.ratio), len(
             self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
-        #coverage_gnuplot = np.zeros(shape=(len(self.denss), *2+1, len(self.ncovs)-1))
-        #coverage_gnuplot[:, 0] = np.array([self.denss]*(len(self.ncovs)-1)).T
         for ndx in range(len(self.ncovs)):
             coverages[:, :, :, :, :, ndx] = self.areas[:, :,
                                                        :, :, :, ndx+1] / self.areas[:, :, :, :, :, 0]
@@ -236,12 +253,6 @@ class BS_Analysis():
         plt.suptitle(f"Relative coverage ({self.strategy})")
         plt.savefig(f'{self.base_dir}/{self.strategy}_coverage.pdf')
         plt.clf()
-
-        # coverage_gnuplot[:,1:len(self.ratio)+1, :] = coverages.mean(axis=2)
-        # coverage_gnuplot[:,len(self.ratio)+1:, :] = conf_int(coverages, axis=2)
-        # for ncov in self.ncovs[1:]:
-        #     for r in self.ratio:
-        #         np.savetxt(f'{self.base_dir}/urban_coverage_{ncov}_{r}.csv', coverage_gnuplot[:,:,ncov-1])
 
     def calc_marginal_cost(self):
         # Marginal cost on marginal coverage
@@ -351,7 +362,7 @@ class BS_Analysis():
         #         gnuplot_out[:, 4*i+k] = scatters[i,:,k]
         # np.savetxt(f'{self.base_dir}/scatter_mean.csv', gnuplot_out)
 
-    def analyze_gnuplot(self):
+    def analyize_pyplot(self):
         self.load_data()
         self.calc_cost_funct(0)
         self.calc_build_ratio()
@@ -361,6 +372,78 @@ class BS_Analysis():
         # self.calc_scatter_costcoverage()
         self.calc_scatter_costcoverage_avg()
         # self.analyize_antennaperbs()
+
+    def analyze_gnuplot(self):
+        self.load_data()
+        self.calc_cost_funct(0)
+        self.relative_coverage_gnuplot_wcnc()
+        self.calc_scatter_costcoverage_avg_gnuplot_wcnc()
+        self.calc_cost_gnuplot_wcnc()
+        self.calc_marginal_cost_gnuplot_wcnc()
+
+    def calc_scatter_costcoverage_avg_gnuplot_wcnc(self):
+        gnuplot_out = np.zeros(shape=(len(self.denss), len(self.ratio)*4))
+        coverages = np.zeros((len(self.denss), len(self.ratio), len(
+            self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
+        for ndx in range(len(self.ncovs)):
+            coverages[:, :, :, :, :, ndx] = self.areas[:, :,
+                                                       :, :, :, ndx+1] / self.areas[:, :, :, :, :, 0]
+        costs = self.costs
+        scatters = np.zeros(shape=(len(self.ratio), len(
+            self.denss), len(self.rt), len(self.k), len(self.ncovs), 4))
+
+        for ndx, ncov in enumerate(self.ncovs):
+            for i, ratio in enumerate(self.ratio):
+                for rdx, rt in enumerate(self.rt):
+                    for kdx, ks in enumerate(self.k):
+                        for j, dens in enumerate(self.denss):
+                            scatters[i, j, rdx, kdx, ndx, 0] = \
+                                coverages[j, i, :, rdx, kdx, ndx].mean()
+                            scatters[i, j, rdx, kdx, ndx, 1] =   \
+                                costs[j, i, :, rdx, kdx].mean()
+                            scatters[i, j, rdx, kdx, ndx, 2] = \
+                                conf_int(coverages[j, i, :, rdx, kdx, ndx])
+                            scatters[i, j, rdx, kdx, ndx, 3] = \
+                                conf_int(costs[j, i, :, rdx, kdx])
+                for k in range(4):
+                    gnuplot_out[:, 4*i+k] = scatters[i, :, 0, 0, 0, k]
+        np.savetxt(f'{self.base_dir}/wcnc/scatter_mean.csv', gnuplot_out)
+
+    def calc_cost_gnuplot_wcnc(self):
+        cost_gnuplot = np.zeros(shape=(len(self.denss), len(self.ratio)*2+3))
+        cost_gnuplot[:, 0] = self.denss
+        costs = self.costs
+        cost_gnuplot[:, 1:len(self.ratio)+1] = costs.mean(axis=2)[:, :, 0, 0]
+        cost_gnuplot[:, len(self.ratio)+1:-
+                     2] = conf_int(costs, axis=2)[:, :, 0, 0]
+        # Upper and lower bound
+        n_bs = self.scalars[:, 0, :, :, :, 3].mean(axis=1)[:, 0, 0]
+        err = conf_int(self.scalars[:, 0, :, :, :, 3], axis=1)[:, 0, 0]
+        cost_gnuplot[:, -2] = 1e-6 * (self.c_build + self.c_ant) * (n_bs + err)
+        cost_gnuplot[:, -1] = 1e-6 * (self.c_ant * (n_bs - err) + self.c_build)
+        np.savetxt(f'{self.base_dir}/wcnc/urban_cost.csv', cost_gnuplot)
+
+    def calc_marginal_cost_gnuplot_wcnc(self):
+        # Marginal cost on marginal coverage
+        meaned_areas = self.areas.mean(axis=2)
+        inc_coverage = np.zeros_like(meaned_areas)
+        inc_coverage[0] = meaned_areas[0]
+        inc_coverage[1:] = meaned_areas[1:] - meaned_areas[:-1]
+        costs = (self.c_ant * self.scalars[:, :, :, :, :, 3] +
+                 self.c_build * self.scalars[:, :, :, :, :, 2]) * 1e-6  # In Millions
+        meaned_cost = costs.mean(axis=2)
+        inc_cost = np.zeros_like(meaned_cost)
+        inc_cost[0] = meaned_cost[0]
+        inc_cost[1:] = meaned_cost[1:] - meaned_cost[:-1]
+
+        for ndx, ncov in enumerate(self.ncovs):
+            cost_inc_mq = inc_cost[:, :, 0, 0] / \
+                inc_coverage[:, :, 0, 0, ndx+1]
+            out = np.zeros(shape=(len(self.denss), len(self.ratio)+1))
+            out[:, 1:] = cost_inc_mq
+            out[:, 0] = np.array(self.denss)
+            np.savetxt(
+                f'{self.base_dir}/wcnc/urban_costcoverage_{ncov}.csv', out)
 
 
 if __name__ == '__main__':
@@ -387,4 +470,5 @@ if __name__ == '__main__':
     tn = BS_Analysis(args.dir, args.comune, args.sub_area, args.ratio, args.dens,
                      args.c_ant, args.c_build, args.ncovs, args.k, args.ranking_type, args.strategy, args.cached)
     # tn.analyize_antennaperbs()
+    # tn.analyize_pyplot()
     tn.analyze_gnuplot()

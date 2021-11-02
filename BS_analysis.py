@@ -353,7 +353,7 @@ class BS_Analysis():
 
     def analyze_gnuplot(self):
         self.load_data()
-        self.calc_cost_funct(1)
+        self.calc_cost_funct(0)
         self.calc_build_ratio()
         self.calc_cost()
         self.calc_norm_coverage()

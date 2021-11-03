@@ -74,15 +74,20 @@ class BS_Analysis():
                                     Counter(index[:, 5]).values())
                                 self.dists[j, i, k, rdx, kdx] = np.histogram(
                                     occurencies, bins=max_antper_bs-1, range=(1, max_antper_bs))[0]
-
+                                self.areas[j, i, k, rdx, kdx, 0] = len(
+                                    coverage[coverage >= 0])
+                                for ndx, ncov in enumerate(self.ncovs):
+                                    self.areas[j, i, k, rdx, kdx, ndx +
+                                               1] = len(coverage[coverage >= ncov])
                             except IndexError:
                                 print(f'{folder}/*_uncropped.tif not found')
+                                self.scalars[j, i, k, rdx, kdx] = np.nan
+                                self.dists[j, i, k, rdx, kdx] = np.nan
+                                self.areas[j, i, k, rdx, kdx, 0] = np.nan
+                                for ndx, ncov in enumerate(self.ncovs):
+                                    self.areas[j, i, k, rdx, kdx, ndx +
+                                               1] = np.nan
                                 continue
-                            self.areas[j, i, k, rdx, kdx, 0] = len(
-                                coverage[coverage >= 0])
-                            for ndx, ncov in enumerate(self.ncovs):
-                                self.areas[j, i, k, rdx, kdx, ndx +
-                                           1] = len(coverage[coverage >= ncov])
 
             np.save(f'{self.base_dir}/{self.strategy}_scalars.npy', self.scalars)
             np.save(f'{self.base_dir}/{self.strategy}_areas.npy', self.areas)
@@ -470,5 +475,5 @@ if __name__ == '__main__':
     tn = BS_Analysis(args.dir, args.comune, args.sub_area, args.ratio, args.dens,
                      args.c_ant, args.c_build, args.ncovs, args.k, args.ranking_type, args.strategy, args.cached)
     # tn.analyize_antennaperbs()
-    # tn.analyize_pyplot()
-    tn.analyze_gnuplot()
+    tn.analyize_pyplot()
+    # tn.analyze_gnuplot()

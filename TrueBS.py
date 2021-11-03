@@ -315,7 +315,7 @@ class TrueBS():
             self.road_mask_crop == 0, -128, global_viewshed)
         self.save_results(folder, nodata_result)
         if self.dump_viewsheds:
-            np.save(f'{folder}/viewsheds', viewsheds)
+            np.save(f'{folder}/viewsheds', cu_mem.copy_to_host())
         # Save metrics
         with open(f'{folder}/metrics.csv', 'w') as fw:
             print(
@@ -414,7 +414,7 @@ class TrueBS():
             self.road_mask_crop == 0, -128, global_viewshed)
         self.save_results(folder, nodata_result)
         if self.dump_viewsheds:
-            np.save(f'{folder}/viewsheds', viewsheds)
+            np.save(f'{folder}/viewsheds', cu_mem.copy_to_host())
         # Save metrics
         with open(f'{folder}/metrics.csv', 'w') as fw:
             print(
@@ -440,15 +440,20 @@ class TrueBS():
         new_dataset.close()
 
     def generate_rankings(self, ks):
-        for k in ks:
-            for sa_id in self.sub_area_id:
-                for rt in self.ranking_type:
-                    self.get_area(sa_id)
-                    self.get_buildings()
-                    if self.strategy == 'twostep':
-                        self.single_ranking(self.buildings, sa_id, k, rt)
-                    elif self.strategy == 'threestep':
-                        self.twostep_ranking(self.buildings, sa_id, k, rt)
+        tot = len(ks)*len(self.sub_area_id)*len(self.ranking_type)
+        i = 0
+        for sa_id in self.sub_area_id:
+            for rt in self.ranking_type:
+                for k in ks:
+                    if k == 3 or rt == 'r1':
+                        print(f'{self.comune}_{sa_id}{rt}_{k} | {i} on {tot}')
+                        self.get_area(sa_id)
+                        self.get_buildings()
+                        if self.strategy == 'twostep':
+                            self.single_ranking(self.buildings, sa_id, k, rt)
+                        elif self.strategy == 'threestep':
+                            self.twostep_ranking(self.buildings, sa_id, k, rt)
+                    i = i+1
 
     def single_ranking(self, buildings, sa_id, k, ranking_type):
         folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}'

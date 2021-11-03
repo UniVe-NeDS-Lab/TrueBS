@@ -298,7 +298,7 @@ class TrueBS():
             coord_3003 = self.dataset.xy(*coord[:2])
             build = all_buildings[coord[0], coord[1]]
             index.append([coord[0], coord[1], coord[2],
-                         coord_3003[0], coord_3003[1], build])
+                          coord_3003[0], coord_3003[1], build, p_i])
             # compute viewshed from this point
             viewsheds[idx] = self.vs.single_viewshed(self.dataset_raster,
                                                      coord,
@@ -396,7 +396,7 @@ class TrueBS():
             coord_3003 = self.dataset.xy(*coord[:2])
             build = all_buildings[coord[0], coord[1]]
             index.append([coord[0], coord[1], coord[2],
-                         coord_3003[0], coord_3003[1], build])
+                          coord_3003[0], coord_3003[1], build])
             # compute viewshed from this point
             viewsheds[idx] = self.vs.single_viewshed(self.dataset_raster,
                                                      coord,

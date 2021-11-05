@@ -17,6 +17,8 @@ def fix_rank(str):
         return 1
     elif str == 'r2':
         return 2
+    elif str == 'rlc':
+        return 3
 
 
 def set_cover(viewsheds, n, k, type, tqdm_enable=True):
@@ -24,16 +26,24 @@ def set_cover(viewsheds, n, k, type, tqdm_enable=True):
         np.zeros(shape=(viewsheds.shape[0]), dtype=np.uint8))
     L = []
     for i in tqdm(range(n)) if tqdm_enable else range(n):
-        r = 0
+        r_max = 0
+        r_min = np.inf
         jstar = -1
         ranks = cuda.device_array(shape=viewsheds.shape[1], dtype=np.float32)
         set_memory(ranks, 0)
         fi_rank_update[viewsheds.shape[1], 1](
             viewsheds, covered_points, ranks, k, fix_rank(type))
-        for j, ri in enumerate(ranks):
-            if ri > r and j not in L:
-                r = ri
-                jstar = j
+        if type != 'rlc':
+            for j, ri in enumerate(ranks):
+                if ri > r_max and j not in L:
+                    r_max = ri
+                    jstar = j
+        else:
+            for j, ri in enumerate(ranks):
+                if ri < r_min and j not in L:
+                    r_min = ri
+                    jstar = j
+
         if jstar >= 0:
             L.append(jstar)
         update_coverage[viewsheds.shape[0], 1](
@@ -108,6 +118,7 @@ def fi_rank_update(viewsheds, covered_points, rank, k, type):
         return
     summ = 0
     sumsq = 0
+    sumrlc = 0
     m = viewsheds.shape[0]
     for i in range(m):
         viewshed_upd = viewsheds[i, mat] + covered_points[i]
@@ -115,12 +126,15 @@ def fi_rank_update(viewsheds, covered_points, rank, k, type):
             viewshed_upd = k
         summ += viewshed_upd
         sumsq += viewshed_upd**2
+        sumrlc += (k-viewshed_upd)**2
     if type == 0:
         rank[mat] = (summ**2 / (m*sumsq)) * (summ/(m*k))
     elif type == 1:
         rank[mat] = summ
     elif type == 2:
         rank[mat] = sumsq
+    elif type == 3:
+        rank[mat] = sumrlc
 
 
 @cuda.jit()

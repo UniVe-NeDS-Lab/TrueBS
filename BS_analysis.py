@@ -1,4 +1,5 @@
 import csv
+from pdb import set_trace
 import configargparse
 import numpy as np
 from tqdm import tqdm
@@ -12,6 +13,9 @@ from collections import Counter
 import matplotlib.pyplot as plt
 from cycler import cycler
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+from scipy.interpolate import interp1d
+import pandas as pd
+import seaborn as sns
 
 max_antper_bs = 60
 antper_bs_cost = 5
@@ -63,10 +67,8 @@ class BS_Analysis():
                     for (i, ratio), (j, dens) in tqdm(itertools.product(enumerate(self.ratio), enumerate(self.denss)), total=len(self.ratio)*len(self.denss)):
                         for k, (area, sa_id) in enumerate(itertools.product(self.comuni, self.sub_area_id)):
                             folder = f'{self.base_dir}/{area}/{self.strategy}/{sa_id}/{r}/{kcov}/{ratio}/{dens}/'
-                            files_dist = glob.glob(f'{folder}/*_uncropped.tif')
                             try:
-                                coverage = np.loadtxt(
-                                    files_dist[0].replace('_uncropped.tif', '.csv'))
+                                coverage = np.loadtxt(f'{folder}/viewshed.csv')
                                 self.scalars[j, i, k, rdx, kdx] = np.loadtxt(
                                     f'{folder}/metrics.csv')
                                 index = np.loadtxt(f'{folder}/index.csv')
@@ -79,7 +81,7 @@ class BS_Analysis():
                                 for ndx, ncov in enumerate(self.ncovs):
                                     self.areas[j, i, k, rdx, kdx, ndx +
                                                1] = len(coverage[coverage >= ncov])
-                            except IndexError:
+                            except IOError:
                                 print(f'{folder}/*_uncropped.tif not found')
                                 self.scalars[j, i, k, rdx, kdx] = np.nan
                                 self.dists[j, i, k, rdx, kdx] = np.nan
@@ -125,7 +127,7 @@ class BS_Analysis():
         # np.zeros((len(self.denss), len(self.ratio), len(
         #     self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)+1))
         coverage_gnuplot = np.zeros(shape=(len(self.denss), len(self.ratio)*2+1,
-                                    len(self.ncovs)))
+                                           len(self.ncovs)))
         coverage_gnuplot[:, 0] = np.array([self.denss]*(len(self.ncovs))).T
         coverage_gnuplot[:, 1:len(self.ratio)+1,
                          :] = coverages.mean(axis=2)[:, :, 0, 0, :]
@@ -205,7 +207,7 @@ class BS_Analysis():
             ax.plot(self.denss, 1e-6 * (self.c_build + self.c_ant)
                     * (n_bs + err), label='Upper Bound')
             ax.plot(self.denss, 1e-6 * (self.c_ant * (n_bs - err) +
-                    self.c_build), label='Lower Bound')
+                                        self.c_build), label='Lower Bound')
             ax.set_title(f"{ratio}% building")
             ax.set_ylabel(f"Million $")
             ax.legend()
@@ -292,10 +294,10 @@ class BS_Analysis():
                 f'{self.base_dir}/{self.strategy}_costcoverage_{ncov}.pdf')
             plt.clf()
 
-            #out = np.zeros(shape=(len(self.denss), len(self.ratio)+1))
+            # out = np.zeros(shape=(len(self.denss), len(self.ratio)+1))
             # out[:, 1:] = cost_inc_mq
             # out[:, 0] = np.array(self.denss)
-            #np.savetxt(f'{self.base_dir}/urban_costcoverage_{ncov}.csv', out)
+            # np.savetxt(f'{self.base_dir}/urban_costcoverage_{ncov}.csv', out)
 
     def calc_scatter_costcoverage(self):
         coverages = np.zeros((len(self.denss), len(self.ratio), len(
@@ -321,7 +323,7 @@ class BS_Analysis():
         plt.clf()
 
     def calc_scatter_costcoverage_avg(self):
-        #gnuplot_out = np.zeros(shape=(len(self.denss), len(self.ratio)*4))
+        # gnuplot_out = np.zeros(shape=(len(self.denss), len(self.ratio)*4))
         coverages = np.zeros((len(self.denss), len(self.ratio), len(
             self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
         for ndx in range(len(self.ncovs)):
@@ -353,10 +355,10 @@ class BS_Analysis():
                     for kdx, k in enumerate(self.k):
                         if k == 3 or rt == 'r1':
                             ax.errorbar(scatters[i, :, rdx, kdx, 0], scatters[i, :, rdx, kdx, 1], xerr=scatters[i,
-                                        :, rdx, kdx, 2], yerr=scatters[i, :, rdx, kdx, 3], fmt='o', label=f"k={k} {rt}")
+                                                                                                                :, rdx, kdx, 2], yerr=scatters[i, :, rdx, kdx, 3], fmt='o', label=f"k={k} {rt}")
                 # ax.yaxis.set_minor_locator(MultipleLocator(0.05))
                 ax.xaxis.set_minor_locator(MultipleLocator(0.05))
-                #ax.set_yticks(np.arange(0.1, 1.1, step=0.1))
+                # ax.set_yticks(np.arange(0.1, 1.1, step=0.1))
                 ax.grid(which='both')
                 ax.legend()
                 ax.set_title(f"{ratio} %")
@@ -369,6 +371,7 @@ class BS_Analysis():
 
     def analyize_pyplot(self):
         self.load_data()
+        self.calc_histograms()
         self.calc_cost_funct(0)
         self.calc_build_ratio()
         self.calc_cost()
@@ -377,14 +380,23 @@ class BS_Analysis():
         # self.calc_scatter_costcoverage()
         self.calc_scatter_costcoverage_avg()
         # self.analyize_antennaperbs()
+        self.computediff()
 
     def analyze_gnuplot(self):
-        self.load_data()
+        # self.load_data()
         self.calc_cost_funct(0)
         self.relative_coverage_gnuplot_wcnc()
         self.calc_scatter_costcoverage_avg_gnuplot_wcnc()
         self.calc_cost_gnuplot_wcnc()
         self.calc_marginal_cost_gnuplot_wcnc()
+
+    def analyze_gnuplot_tnsm(self):
+        self.load_data()
+        self.calc_cost_funct(0)
+        # self.calc_marginal_cost_gnuplot_tnsm()
+        # self.calc_cost_gnuplot_tnsm()
+        self.relative_coverage_gnuplot_tnsm()
+        # self.calc_scatter_costcoverage_avg_gnuplot_tnsm()
 
     def calc_scatter_costcoverage_avg_gnuplot_wcnc(self):
         gnuplot_out = np.zeros(shape=(len(self.denss), len(self.ratio)*4))
@@ -413,6 +425,56 @@ class BS_Analysis():
                 for k in range(4):
                     gnuplot_out[:, 4*i+k] = scatters[i, :, 0, 0, 0, k]
         np.savetxt(f'{self.base_dir}/wcnc/scatter_mean.csv', gnuplot_out)
+
+    def computediff(self):
+        coverages = np.zeros((len(self.denss), len(self.ratio), len(
+            self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
+        for ndx in range(len(self.ncovs)):
+            coverages[:, :, :, :, :, ndx] = self.areas[:, :,
+                                                       :, :, :, ndx+1] / self.areas[:, :, :, :, :, 0]
+        costs = self.costs
+        scatters = np.zeros(shape=(len(self.ratio), len(
+            self.denss), len(self.rt), len(self.k), len(self.ncovs), 4))
+
+        for ndx, ncov in enumerate(self.ncovs):
+            for i, ratio in enumerate(self.ratio):
+                for rdx, rt in enumerate(self.rt):
+                    for kdx, ks in enumerate(self.k):
+                        for j, dens in enumerate(self.denss):
+                            scatters[i, j, rdx, kdx, ndx, 0] = \
+                                coverages[j, i, :, rdx, kdx, ndx].mean()
+                            scatters[i, j, rdx, kdx, ndx, 1] =   \
+                                costs[j, i, :, rdx, kdx].mean()
+
+            def pdiff(a, b):
+                return (a-b)/a
+
+            for rdx, rt in enumerate(self.rt):
+                for kdx, ks in enumerate(self.k):
+                    print(rt, ks)
+                    if ks == 3 or rt == 'r1':
+                        fs = {}
+                        for i, ratio in enumerate(self.ratio):
+                            fs[ratio] = interp1d(scatters[i, :, rdx, kdx, ndx, 0],
+                                                 scatters[i, :, rdx, kdx, ndx, 1])
+
+                        xs = np.linspace(0.8, 0.95)
+                        try:
+                            print(ndx, '0.84', pdiff(fs[4.0](0.84), fs[100.0](0.84)))
+                            print(ndx, '0.9', pdiff(fs[4.0](0.9), fs[100.0](0.90)))
+                            print(ndx, '0.95', pdiff(fs[4.0](0.95), fs[100.0](0.95)))
+                            # print(list(zip(xs, pdiff(fs[4.0](xs), fs[100.0](xs)))))
+                        except:
+                            print("Out of range")
+                            continue
+        print("Mixed up")
+        fs_3cg = interp1d(scatters[self.ratio.index(4), :, self.rt.index('rlc'), self.k.index(3), 0, 0],
+                          scatters[self.ratio.index(4), :, self.rt.index('rlc'), self.k.index(3), 0, 1])
+        fs_1cm = interp1d(scatters[self.ratio.index(4), :, self.rt.index('r1'), self.k.index(1), 0, 0],
+                          scatters[self.ratio.index(4), :, self.rt.index('r1'), self.k.index(1), 0, 1])
+        print('0.84', pdiff(fs_1cm(0.84), fs_3cg(0.84)))
+        print('0.9', pdiff(fs_1cm(0.90), fs_3cg(0.9)))
+        print('0.94', pdiff(fs_1cm(0.94), fs_3cg(0.94)))
 
     def calc_cost_gnuplot_wcnc(self):
         cost_gnuplot = np.zeros(shape=(len(self.denss), len(self.ratio)*2+3))
@@ -450,6 +512,168 @@ class BS_Analysis():
             np.savetxt(
                 f'{self.base_dir}/wcnc/urban_costcoverage_{ncov}.csv', out)
 
+    def analyize_seaborn(self):
+        self.load_data()
+        self.calc_cost_funct(0)
+        self.calc_norm_coverage_seaborn()
+
+    def calc_norm_coverage_seaborn(self):
+
+        data = []
+        data_avg = []
+        coverages = np.zeros((len(self.denss), len(self.ratio), len(
+            self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
+        for ndx in range(len(self.ncovs)):
+            coverages[:, :, :, :, :, ndx] = self.areas[:, :,
+                                                       :, :, :, ndx+1] / self.areas[:, :, :, :, :, 0]
+        marginal_cost = np.diff(self.costs, axis=0) / \
+            np.diff(coverages[:, :, :, :, :, 0], axis=0)
+
+        for ndx, ncov in enumerate(self.ncovs):
+            for rtdx, ratio in enumerate(self.ratio):
+                for rdx, rt in enumerate(self.rt):
+                    for kdx, k in enumerate(self.k):
+                        for ddx, dens in enumerate(self.denss):
+                            if k == 3 or rt == 'r1':
+                                d_avg = {
+                                    'ratio': ratio,
+                                    'ncoverage': ncov,
+                                    'rtdx': rtdx,
+                                    'ranking_type': f'{rt}_{k}',
+                                    'density': dens,
+                                    'coverage': self.areas[ddx, rtdx, :, rdx, kdx, ndx+1].mean() / self.areas[ddx, rtdx, :, rdx, kdx,  0].mean(),
+                                    'cost': self.costs[ddx, rtdx, :, rdx, kdx].mean()
+                                }
+                                data_avg.append(d_avg)
+                                for adx, (area, sa_id) in enumerate(itertools.product(self.comuni, self.sub_area_id)):
+                                    d = {
+                                        'area': f'{area}_{sa_id}',
+                                        'ratio': ratio,
+                                        'rtdx': rtdx,
+                                        'ncoverage': ncov,
+                                        'ranking_type': f'{rt}_{k}',
+                                        'density': dens,
+                                        'coverage': self.areas[ddx, rtdx, adx, rdx, kdx, ndx+1] / self.areas[ddx, rtdx, adx, rdx, kdx,  0],
+                                        'cost': self.costs[ddx, rtdx, adx, rdx, kdx],
+                                        'marginal_cost': 0
+                                    }
+                                    if ddx+1 < len(self.denss):
+                                        d['marginal_cost'] = marginal_cost[ddx,
+                                                                           rtdx, adx, rdx, kdx]
+                                    data.append(d)
+
+        df = pd.DataFrame(data_avg)
+        sns.set_theme(style="whitegrid")
+        # g = sns.relplot(data=df,
+        #                 kind='line',
+        #                 y='cost',
+        #                 x='coverage',
+        #                 hue='rtdx',
+        #                 # palette="Accent",
+        #                 row='ncoverage',
+        #                 col='ranking_type')
+        sns.histplot(data, )
+        # plt.yticks(np.linspace(0, 1, 11))
+        plt.show()
+
+    def calc_cost_gnuplot_tnsm(self):
+        for rtdx, ratio in enumerate(self.ratio):
+            cost_gnuplot = np.zeros(
+                shape=(len(self.denss), 4*2+3))
+            cost_gnuplot[:, 0] = self.denss
+            costs = self.costs
+            i = 1
+            for rdx, rt in enumerate(self.rt):
+                for kdx, k in enumerate(self.k):
+                    if k == 3 or rt == 'r1':
+                        cost_gnuplot[:, i] = costs.mean(axis=2)[:, rtdx, rdx, kdx]
+                        cost_gnuplot[:, 4 + i] = conf_int(costs, axis=2)[:, rtdx, rdx, kdx]
+                        i += 1
+            # Upper and lower bound
+            n_bs = self.scalars[:, rtdx, :, rdx, kdx, 3].mean(axis=1)
+            err = conf_int(self.scalars[:, rtdx, :, rdx, kdx, 3], axis=1)
+            cost_gnuplot[:, -2] = 1e-6 * (self.c_build + self.c_ant) * (n_bs + err)
+            cost_gnuplot[:, -1] = 1e-6 * (self.c_ant * (n_bs - err) + self.c_build)
+            np.savetxt(f'{self.base_dir}/tnsm/urban_cost_{ratio}.csv', cost_gnuplot)
+
+    def calc_marginal_cost_gnuplot_tnsm(self):
+        # Marginal cost on marginal coverage
+        meaned_areas = self.areas.mean(axis=2)
+        inc_coverage = np.zeros_like(meaned_areas)
+        inc_coverage[0] = meaned_areas[0]
+        inc_coverage[1:] = meaned_areas[1:] - meaned_areas[:-1]
+        costs = (self.c_ant * self.scalars[:, :, :, :, :, 3] +
+                 self.c_build * self.scalars[:, :, :, :, :, 2]) * 1e-6  # In Millions
+        meaned_cost = costs.mean(axis=2)
+        inc_cost = np.zeros_like(meaned_cost)
+        inc_cost[0] = meaned_cost[0]
+        inc_cost[1:] = meaned_cost[1:] - meaned_cost[:-1]
+
+        for ndx, ncov in enumerate(self.ncovs):
+            for rtdx, ratio in enumerate(self.ratio):
+                cost_inc_mq = inc_cost[:, rtdx, :, :] / inc_coverage[:, rtdx, :, :, ndx+1]
+                out = np.zeros(shape=(len(self.denss), 5))
+                out[:, 0] = np.array(self.denss)
+                i = 1
+                for rdx, rt in enumerate(self.rt):
+                    for kdx, k in enumerate(self.k):
+                        if k == 3 or rt == 'r1':
+                            kdx
+                            out[:, i] = cost_inc_mq[:, rdx, kdx]
+                            i += 1
+                np.savetxt(
+                    f'{self.base_dir}/tnsm/urban_marginalcost_{ratio}_{ncov}.csv', out)
+
+    def relative_coverage_gnuplot_tnsm(self):
+        coverages = np.zeros((len(self.denss), len(self.ratio), len(
+            self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), len(self.ncovs)))
+        for ndx in range(len(self.ncovs)):
+            coverages[:, :, :, :, :, ndx] = self.areas[:, :, :, :, :, ndx+1] / self.areas[:, :, :, :, :, 0]
+        for rtdx, ratio in enumerate(self.ratio):
+            coverage_gnuplot = np.zeros(shape=(len(self.denss), 4*2+1, len(self.ncovs)))
+            coverage_gnuplot[:, 0] = np.array([self.denss]*(len(self.ncovs))).T
+            i = 1
+            for rdx, rt in enumerate(self.rt):
+                for kdx, k in enumerate(self.k):
+                    if k == 3 or rt == 'r1':
+                        coverage_gnuplot[:, i, :] = coverages.mean(axis=2)[:, rtdx, rdx, kdx, :]
+                        coverage_gnuplot[:, i+4, :] = conf_int(coverages, axis=2)[:, rtdx, rdx, kdx, :]
+                        i += 1
+            for ndx, ncov in enumerate(self.ncovs):
+                np.savetxt(f'{self.base_dir}/tnsm/urban_coverage_{ratio}_{ncov}.csv', coverage_gnuplot[:, :, ndx])
+
+    def calc_histograms(self):
+        plt.figure(figsize=(10, 5))
+        ratio = 4
+        rdx = self.ratio.index(ratio)
+        dens = 75
+        ddx = self.denss.index(dens)
+        l = 1
+        max_antper_bs = 40
+        occurencies = np.zeros(shape=(15, max_antper_bs))
+        # self.dists = np.zeros((len(self.denss), len(self.ratio), len(self.sub_area_id)*len(self.comuni), len(self.rt), len(self.k), max_antper_bs-1))
+        result_gnuplot = np.zeros(shape=(max_antper_bs, 5))
+        result_gnuplot[:, 0] = range(0, max_antper_bs)
+        for rtdx, rt in enumerate(self.rt):
+            for kdx, k in enumerate(self.k):
+                if k == 3 or rt == 'r1':
+                    for j, (area, sa_id) in enumerate(itertools.product(self.comuni, self.sub_area_id)):
+                        folder = f'{self.base_dir}/{area}/{self.strategy}/{sa_id}/{rt}/{k}/{float(ratio)}/{dens}/'
+                        coverage = np.loadtxt(f'{folder}/viewshed.csv', dtype=int)
+                        # hist = [x[1] for x in sorted(Counter(coverage).items(), key=lambda x: x[0])]
+                        hist = np.histogram(coverage, bins=max(coverage), density=True)[0]
+                        occurencies[j, :len(hist)] = hist
+
+                    # ax = plt.subplot(2, 2, l)
+                    plt.plot(range(0, max_antper_bs), occurencies.mean(axis=0), label=f'{rt} k={k}')
+                    result_gnuplot[:, l] = occurencies.mean(axis=0)
+                    l += 1
+        plt.legend()
+        plt.grid()
+        plt.xticks(range(0, max_antper_bs))
+        plt.savefig(f'{self.base_dir}/{self.strategy}_{ratio}_{dens}_distribution.pdf')
+        np.savetxt(f'{self.base_dir}/{self.strategy}_{ratio}_{dens}_distribution.csv', result_gnuplot)
+
 
 if __name__ == '__main__':
     parser = configargparse.ArgumentParser(
@@ -477,3 +701,5 @@ if __name__ == '__main__':
     # tn.analyize_antennaperbs()
     tn.analyize_pyplot()
     # tn.analyze_gnuplot()
+    # tn.analyze_gnuplot_tnsm()
+    # tn.analyize_seaborn()

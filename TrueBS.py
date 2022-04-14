@@ -252,7 +252,6 @@ class TrueBS():
                     id) for id in selected_buildings_ids]
 
         # Get coordinates for the choosen buildings
-        n_bs = int(self.buffered_area.area * 1e-6 * dens)
         all_coords = []
         all_buildings = {}
         for build in selected_buildings:
@@ -554,7 +553,7 @@ class TrueBS():
         b_ids = [buildings[i].osm_id for i in selected_buildings]
         with open(f"{folder}/{ranking_type}/{k}/ranking_{self.max_build}.txt", 'w') as fw:
             fw.write(', '.join(b_ids))
-
+    
 
 if __name__ == '__main__':
     parser = configargparse.ArgumentParser(

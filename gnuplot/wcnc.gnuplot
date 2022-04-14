@@ -5,16 +5,17 @@ set format x "%.0f"
 set xrange [0:130]
 set key inside top left
 
+basedir='../results/results_wcnc'
 
 ##Coverage
 do for [ncov in '1 2 3']{
-    set output '~/TNSM2022/results_final/wcnc/coverage_'.ncov.'.pdf'
+    set output basedir.'/wcnc/coverage_'.ncov.'.pdf'
 
     set ylabel 'coverage'
     set format y "%.1f"
     set yrange [0.5:1]
 
-    plot '~/TNSM2022/results_final/wcnc/urban_coverage_'.ncov.'.csv' using 1:2:6 with yerrorbars t '1%' lc 'red',\
+    plot basedir.'/wcnc/urban_coverage_'.ncov.'.csv' using 1:2:6 with yerrorbars t '1%' lc 'red',\
     '' using 1:2 with lines lc 'red' notitle,\
     '' using 1:3:7 with yerrorbars t '5%' lc 'blue',\
     '' using 1:3 with lines lc 'blue' notitle,\
@@ -28,10 +29,10 @@ do for [ncov in '1 2 3']{
 
 
 ## Cost
-set output '~/TNSM2022/results_final/wcnc/cost.pdf'
+set output basedir.'/wcnc/cost.pdf'
 set ylabel '£ (Millions)'
 unset yrange
-plot '~/TNSM2022/results_final/wcnc/urban_cost.csv' using 1:2:6 with yerrorbars t '1%' lc 'red',\
+plot basedir.'/wcnc/urban_cost.csv' using 1:2:6 with yerrorbars t '1%' lc 'red',\
     '' using 1:2 with lines lc 'red' notitle,\
     '' using 1:3:7 with yerrorbars t '5%' lc 'blue',\
     '' using 1:3 with lines lc 'blue' notitle,\
@@ -63,12 +64,12 @@ plot '~/TNSM2022/results_final/wcnc/urban_cost.csv' using 1:2:6 with yerrorbars 
 
 ##Cost on coverage
 do for [ncov in '1 2 3']{
-    set output '~/TNSM2022/results_final/wcnc/costcoverage_'.ncov.'.pdf'
+    set output basedir.'/wcnc/costcoverage_'.ncov.'.pdf'
 
     set ylabel '£ / m^2'
     unset format y
     #set logscale y 10
-    plot '~/TNSM2022/results_final/wcnc/urban_costcoverage_'.ncov.'.csv' using 1:3 with lines t '5%' lc 'blue',\
+    plot basedir.'/wcnc/urban_costcoverage_'.ncov.'.csv' using 1:3 with lines t '5%' lc 'blue',\
     '' using 1:4 with lines t '10%' lc 'green',\
     '' using 1:5 with lines t '100%' lc 'pink',\
 
@@ -87,8 +88,8 @@ set grid
 set grid mxtics
 #set xtics 0,.05,1
 set mxtics 2
-set output '~/TNSM2022/results_final/wcnc/scatter_mean.pdf'
-plot '~/TNSM2022/results_final/wcnc/scatter_mean.csv' using 1:2:3:4 with xyerrorbars title '1%' lc 'red' pt 7 ps 0.5,\
+set output basedir.'/wcnc/scatter_mean.pdf'
+plot basedir.'/wcnc/scatter_mean.csv' using 1:2:3:4 with xyerrorbars title '1%' lc 'red' pt 7 ps 0.5,\
      '' using 1:2 with lines notitle lc 'red',\
      '' using 5:6:7:8 with xyerrorbars title '5%' lc 'blue' pt 7 ps 0.5,\
      '' using 5:6 with lines notitle lc 'blue',\

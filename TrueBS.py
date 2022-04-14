@@ -146,12 +146,13 @@ class TrueBS():
         for row in self.subareas_csv:
             if row[1] == sub_area_id:
                 self.sub_area = wkt.loads(row[0])
-                # TODO: decide how to manage border effect
                 self.buffered_area = self.sub_area.buffer(self.max_dist/2)
                 self.road_mask_crop, rm_transform = rio.mask.mask(
                     self.road_mask, [self.buffered_area], crop=True, indexes=1)
                 self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
                     self.road_mask_crop)
+                np.save(f'{self.base_dir}/{self.comune.lower()}/threestep/{sub_area_id}/translation_matrix', self.translation_matrix)
+                np.save(f'{self.base_dir}/{self.comune.lower()}/threestep/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
                 # Crop and save DSM
                 raster, transform1 = rio.mask.mask(
                     self.big_dsm, [self.buffered_area], crop=True, indexes=1)
@@ -395,13 +396,14 @@ class TrueBS():
             coord_3003 = self.dataset.xy(*coord[:2])
             build = all_buildings[coord[0], coord[1]]
             index.append([coord[0], coord[1], coord[2],
-                          coord_3003[0], coord_3003[1], build])
+                          coord_3003[0], coord_3003[1], build, p_i])
             # compute viewshed from this point
             viewsheds[idx] = self.vs.single_viewshed(self.dataset_raster,
                                                      coord,
                                                      self.poi_elev,
                                                      self.tgt_elev,
                                                      1).copy_to_host()
+            # q
 
         # Compute global viewshed by summing over the buildings axis
         global_viewshed = viewsheds.sum(axis=0)

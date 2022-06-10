@@ -8,12 +8,16 @@ from rasterio.io import MemoryFile
 import numpy as np
 from tqdm import tqdm
 from shapely.geometry import shape
+import shapely.geometry as sg
+import shapely.ops as so
 import os
 import scipy.ndimage as ndimage
 import shapely.wkt as wkt
 import pickle
 from SetCover import set_cover
 import geopandas as gpd
+import pandas as pd
+import networkx as nx
 
 
 class TrueBS():
@@ -58,10 +62,12 @@ class TrueBS():
         id, obj = list(df.iterrows())[0]
         return obj
 
-    def get_buildings(self):
+    def get_buildings(self, buffer=None):
+        if buffer == None:
+            buffer = self.buffered_area
         self.buildings_df = gpd.read_postgis(f"SELECT * \
                                             FROM {self.buildings_table}  \
-                                            WHERE ST_Intersects('SRID={self.srid};{self.buffered_area.wkt}'::geometry, geom) \
+                                            WHERE ST_Intersects('SRID={self.srid};{buffer.wkt}'::geometry, geom) \
                                             ORDER BY gid",
                                              self.conn,
                                              crs=self.crs)
@@ -70,8 +76,7 @@ class TrueBS():
         if(len(self.buildings) == 0):
             print("Warning: 0 buildings in the area")
         else:
-            print(
-                f"{len(self.buildings)} buildings, {(self.buffered_area.area*1e-6):.2f} kmq")
+            print(f"{len(self.buildings)} buildings, {(buffer.area*1e-6):.2f} kmq")
 
     def convert_coordinates(self, coordinates):
         mapped_coord = self.dataset.index(coordinates[0], coordinates[1])
@@ -145,14 +150,19 @@ class TrueBS():
     def get_area(self, sub_area_id):
         for row in self.subareas_csv:
             if row[1] == sub_area_id:
+                # Read the WKT of this subarea
                 self.sub_area = wkt.loads(row[0])
+                # Create a buffer of max_d / 2 around it
                 self.buffered_area = self.sub_area.buffer(self.max_dist/2)
+                # Crop the road mask using the buffer area
                 self.road_mask_crop, rm_transform = rio.mask.mask(
                     self.road_mask, [self.buffered_area], crop=True, indexes=1)
+                # Generate the transformation matrixes and save them
                 self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
                     self.road_mask_crop)
-                np.save(f'{self.base_dir}/{self.comune.lower()}/threestep/{sub_area_id}/translation_matrix', self.translation_matrix)
-                np.save(f'{self.base_dir}/{self.comune.lower()}/threestep/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
+                os.makedirs(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sub_area_id}', exist_ok=True)
+                np.save(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/translation_matrix', self.translation_matrix)
+                np.save(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
                 # Crop and save DSM
                 raster, transform1 = rio.mask.mask(
                     self.big_dsm, [self.buffered_area], crop=True, indexes=1)
@@ -201,7 +211,7 @@ class TrueBS():
 
         return translation_matrix, inverse_matrix
 
-    def simulate(self):
+    def optimal_locations(self):
         tot = len(self.sub_area_id) * len(self.ratio) * \
             len(self.denss) * len(self.ks) * len(self.ranking_type)
         i = 0
@@ -242,15 +252,19 @@ class TrueBS():
         os.system(f'mkdir -p {folder}')
 
         # Load building ranking
-        with open(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/ranking.txt', 'r') as fr:
-            selected_buildings = fr.read().split(', ')
-            n_buildings = int(len(self.buildings)*ratio/100)
-            if n_buildings > len(selected_buildings):
-                print("Don't have so much buildings in ranking")
-            else:
-                selected_buildings_ids = selected_buildings[:n_buildings]
-                selected_buildings = [self.get_building(
-                    id) for id in selected_buildings_ids]
+        if ratio < 100:
+            with open(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/ranking.txt', 'r') as fr:
+                selected_buildings = fr.read().split(', ')
+                n_buildings = int(len(self.buildings)*ratio/100)
+                if n_buildings > len(selected_buildings):
+                    print("Don't have so much buildings in ranking")
+                else:
+                    selected_buildings_ids = selected_buildings[:n_buildings]
+                    selected_buildings = [self.get_building(
+                        id) for id in selected_buildings_ids]
+        else:
+            selected_buildings_ids = [b.osm_id for b in self.buildings]
+            selected_buildings = [self.get_building(id) for id in selected_buildings_ids]
 
         # Get coordinates for the choosen buildings
         all_coords = []
@@ -315,7 +329,7 @@ class TrueBS():
             self.road_mask_crop == 0, -128, global_viewshed)
         self.save_results(folder, nodata_result)
         if self.dump_viewsheds:
-            np.save(f'{folder}/viewsheds', cu_mem.copy_to_host())
+            np.save(f'{folder}/viewsheds', viewsheds)
         # Save metrics
         with open(f'{folder}/metrics.csv', 'w') as fw:
             print(
@@ -415,7 +429,7 @@ class TrueBS():
             self.road_mask_crop == 0, -128, global_viewshed)
         self.save_results(folder, nodata_result)
         if self.dump_viewsheds:
-            np.save(f'{folder}/viewsheds', cu_mem.copy_to_host())
+            np.save(f'{folder}/viewsheds', viewsheds)
         # Save metrics
         with open(f'{folder}/metrics.csv', 'w') as fw:
             print(
@@ -555,7 +569,35 @@ class TrueBS():
         b_ids = [buildings[i].osm_id for i in selected_buildings]
         with open(f"{folder}/{ranking_type}/{k}/ranking_{self.max_build}.txt", 'w') as fw:
             fw.write(', '.join(b_ids))
-    
+
+    def network(self):
+        i = 0
+        tot = len(self.sub_area_id) * len(self.ratio) * \
+            len(self.denss) * len(self.ks) * len(self.ranking_type)
+        for sa_id in self.sub_area_id:
+            self.get_area(sa_id)
+            for ratio in self.ratio:
+                for dens in self.denss:
+                    for k in self.ks:
+                        for rt in self.ranking_type:
+                            if k == 3 or rt == 'r1':
+                                print(f'{self.comune}_{sa_id} {ratio}% {dens} {rt}_{k} | {i} on {tot}')
+                                self.connect_network(sa_id, ratio, dens, k, rt)
+                            i += 1
+
+    def connect_network(self, sa_id, ratio, dens, k, ranking_type):
+        # Generate the intervisibility graph
+        folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
+        indexes = pd.read_csv(f'{folder}/index.csv', delimiter=' ', header=0, names=['x', 'y', 'z', 'x_3003', 'y_3003', 'building_id', 'p_id'])
+        coordinates = indexes[['x', 'y', 'z']].values
+        vis_mat = self.vs.generate_intervisibility_fast(self.dataset_raster, coordinates)
+        vg = nx.from_numpy_matrix(vis_mat)
+        nx.set_node_attributes(vg, indexes.to_dict('index'))
+        for src, dst in vg.edges():
+            vg[src][dst]['distance'] = np.linalg.norm(coordinates[dst]-coordinates[src])
+
+        nx.write_graphml(vg, f'{folder}/visibility.graphml.gz')
+
 
 if __name__ == '__main__':
     parser = configargparse.ArgumentParser(
@@ -563,8 +605,9 @@ if __name__ == '__main__':
     parser.add_argument("-c", "--comune",
                         help="Nome del comune da analizzare",
                         required=True)
-    parser.add_argument(
-        "-d", "--dataset", help="raster dataset to use (ctr or osm)", default="osm")
+    parser.add_argument("-d", "--dataset",
+                        help="raster dataset to use (ctr or osm)",
+                        default="osm")
     parser.add_argument("-r", "--raster_dir",
                         help="Percorso della cartella contenente i rasters",
                         required=True)
@@ -594,6 +637,8 @@ if __name__ == '__main__':
     parser.add_argument("-mb", '--max_build',
                         required=False, type=int, default=5)
     parser.add_argument("--ranking", action='store_true')
+    parser.add_argument("--optimal_locations", action='store_true')
+    parser.add_argument("--network", action='store_true')
     parser.add_argument("--srid", type=int, default=3003)
     parser.add_argument("--buildings_table", type=str, required=True)
     parser.add_argument("--strategy", type=str, required=True)
@@ -605,5 +650,7 @@ if __name__ == '__main__':
 
     if args.ranking:
         tn.generate_rankings(args.k)
-    else:
-        tn.simulate()
+    if args.optimal_locations:
+        tn.optimal_locations()
+    if args.network:
+        tn.network()

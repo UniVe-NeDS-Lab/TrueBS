@@ -1,0 +1,13 @@
+raster_dir: /data/dtm_fusion
+output: results/
+poi_elev: 2
+tgt_elev: 2
+max_dist: 300
+dens : [15,45,75,105,135,165,195]
+ratio: [2.0, 4.0, 100.0]
+sub_area: [0,1,2,3,4]
+max_build: 5
+ranking_type: [r1]
+k: [1]
+strategy: threestep
+buildings_table: osm_buildings_3003

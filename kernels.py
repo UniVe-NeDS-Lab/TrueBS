@@ -355,3 +355,50 @@ def parallel_viewshed_t_k(dsm, out, translation_matrix, coords, max_dist,  width
                     out[translated_id-1, tidz] = 1
         if(tilt_land < max_tilt):
             max_tilt = tilt_land
+
+
+@cuda.jit
+def los_k(dsm, ordered_coordinates, out):
+    tid_x, tid_y = cuda.grid(2)
+    if tid_x >= ordered_coordinates.shape[0] or \
+       tid_y >= ordered_coordinates.shape[0] or \
+       tid_x == tid_y:
+        return
+    x_step = types.float32(1.0)
+    y_step = types.float32(1.0)
+    poi = ordered_coordinates[tid_y]
+    tgt = ordered_coordinates[tid_x]
+
+    xs = tgt[0] - poi[0]
+    ys = tgt[1] - poi[1]
+    xs_a = abs(xs)
+    ys_a = abs(ys)
+    if(xs_a >= ys_a):
+        # x dominant axis
+        x_step = 1*math.copysign(1, xs)
+        y_step = ys/xs_a
+        dist = xs_a
+    else:
+        # y dominant axis
+        y_step = 1*math.copysign(1, ys)
+        x_step = xs/ys_a
+        dist = ys_a
+
+    h_poi = poi[2]
+    h_tgt = tgt[2]
+    distance = math.sqrt(float(xs**2 + ys**2))
+    tilt_ant = (-h_poi + h_tgt) / distance
+    for j in range(1, dist):
+        x = x_step * j + poi[0]
+        y = y_step * j + poi[1]
+        xd = x-poi[0]
+        yd = y-poi[1]
+        # 2-d distance from poi
+        d_poi = math.sqrt(xd*xd + yd*yd)
+        # take point elevation
+        p1 = (int(x), int(y))
+        # height of LOS
+        h_los = tilt_ant * d_poi + h_poi
+        if dsm[p1] > h_los:
+            return
+    out[tid_y, tid_x] = 1

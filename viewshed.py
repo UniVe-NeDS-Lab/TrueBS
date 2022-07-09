@@ -1,7 +1,7 @@
 import numpy as np
 from numba import cuda
 import math
-from kernels import memset_k_1d, viewshed_k, threads_n, par_blocks, memset_k,  parallel_viewshed_t_k, logical_or_axis_k, CORNER_OVERLAP
+from kernels import memset_k_1d, viewshed_k, threads_n, memset_k,  parallel_viewshed_t_k, logical_or_axis_k, los_k, CORNER_OVERLAP
 from tqdm import tqdm
 
 
@@ -201,3 +201,23 @@ class Viewshed():
         for idx, e in enumerate(inverse_matrix[1:]):
             viewshed[e[0], e[1]] = linear_vs[idx]
         return viewshed
+
+    def generate_intervisibility_fast(self,
+                                      raster: np.ndarray,
+                                      coordinates: np.ndarray
+                                      ) -> np.ndarray:
+        self.raster = raster
+        self.dsm_global_mem = cuda.to_device(raster)
+        self.building_n = coordinates.shape[0]
+        self.building_list = cuda.to_device(coordinates)
+        self.intervisibility_mat = cuda.device_array(shape=(self.building_n,
+                                                            self.building_n),
+                                                     dtype=np.uint8)
+        self.set_memory(self.intervisibility_mat, 0)
+        threadsperblock = 16
+        blockspergrid_x = int(math.ceil(self.building_n / threadsperblock))
+        los_k[(blockspergrid_x, blockspergrid_x),
+              (threadsperblock, threadsperblock)](self.dsm_global_mem,
+                                                  self.building_list,
+                                                  self.intervisibility_mat)
+        return self.intervisibility_mat.copy_to_host()

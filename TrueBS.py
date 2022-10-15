@@ -133,6 +133,7 @@ class TrueBS():
                             z = z_dtm + self.poi_elev
                         # if height is valid (not out of map)
                         if z > 0:
+                        
                             # associate original pixel position to z and pack
                             xx, yy = rio.transform.xy(
                                 transform, rows[i], cols[i])
@@ -145,11 +146,12 @@ class TrueBS():
                 except IndexError:
                     # Portion of building outside of area
                     continue
+        assert len(coordinates) > 0
         return coordinates
 
     def get_area(self, sub_area_id):
         for row in self.subareas_csv:
-            if row[1] == sub_area_id:
+            if int(row[1]) == int(sub_area_id):
                 # Read the WKT of this subarea
                 self.sub_area = wkt.loads(row[0])
                 # Create a buffer of max_d / 2 around it
@@ -348,7 +350,7 @@ class TrueBS():
             selected_buildings = fr.read().split(', ')
             n_buildings = int(len(self.buildings)*ratio/100)
             if n_buildings > len(selected_buildings):
-                print("Don't have so much buildings in ranking")
+                print(f"Don't have so much buildings in ranking {n_buildings} {len(selected_buildings)}")
             else:
                 selected_buildings_ids = selected_buildings[:n_buildings]
                 # selected_buildings = [self.get_building(
@@ -588,7 +590,8 @@ class TrueBS():
     def connect_network(self, sa_id, ratio, dens, k, ranking_type):
         # Generate the intervisibility graph
         folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
-        indexes = pd.read_csv(f'{folder}/index.csv', delimiter=' ', header=0, names=['x', 'y', 'z', 'x_3003', 'y_3003', 'building_id', 'p_id'])
+        indexes = pd.read_csv(f'{folder}/index.csv', delimiter=' ', header=None, names=['x', 'y', 'z', 'x_3003', 'y_3003', 'building_id', 'p_id'])
+        indexes.reset_index(inplace=True) #Keep the id inside of the df
         coordinates = indexes[['x', 'y', 'z']].values
         vis_mat = self.vs.generate_intervisibility_fast(self.dataset_raster, coordinates)
         vg = nx.from_numpy_matrix(vis_mat)
@@ -627,7 +630,7 @@ if __name__ == '__main__':
                         action='append', help="BS for sqkm")
 
     parser.add_argument("--ratio", type=float,
-                        required=False, default=[], action='append')
+                        required=True, default=[], action='append')
 
     parser.add_argument("-sa", '--sub_area', required=True,
                         type=str, action='append')

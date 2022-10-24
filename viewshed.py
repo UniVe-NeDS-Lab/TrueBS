@@ -1,7 +1,7 @@
 import numpy as np
 from numba import cuda
 import math
-from kernels import memset_k_1d, viewshed_k, threads_n, memset_k,  parallel_viewshed_t_k, logical_or_axis_k, los_k, CORNER_OVERLAP
+from kernels import memset_k_1d, sum_axis_k, max_axis_k, viewshed_k, threads_n, memset_k,  parallel_viewshed_t_k, logical_or_axis_k, los_k, CORNER_OVERLAP
 from tqdm import tqdm
 
 
@@ -57,7 +57,7 @@ class Viewshed():
                                                    poi_elev_type)
         return out_global_mem
 
-    def parallel_viewsheds_translated(self, raster_np, poi_coords, translation_matrix, n_points, poi_elev, tgt_elev, poi_elev_type):
+    def parallel_viewsheds_translated(self, raster_np, poi_coords, translation_matrix, road_raster, poi_elev, tgt_elev, poi_elev_type):
         '''
         This function calculates n_vs viewsheds parallely. Each viewshed is stored as a line and the corresponding translation is given by translation_matrix
 
@@ -65,11 +65,12 @@ class Viewshed():
         raster_np : numpy array containing the Digital Elevation Model
         poi_coords: list of coordinates for the observer point (either [x,y] or [x,y,z] depending on poi_elev_type)
         translation_matrix: matrix with shape equal to raster_np, each cell can contains either 0 (ignore the value) or an index between 1:npoints+1
-        n_points: the total number of target points
+        road_raster: the raster masking the roads (if values are gt 1 they will be used as weights)
         poi_elev: the height of the observer point above the DEM (if poi_elev_type == 0 this should be 0)
         tgt_elev: the height of the target point above the DEM
         poi_elev_type: this value specifies if the height of the point of interest must be taken from poi_coords[:,2] or from poi_elev
         '''
+        n_points = np.count_nonzero(road_raster)
         assert n_points == translation_matrix.max()
         if poi_elev_type == 1:
             assert len(poi_coords[0]) == 3
@@ -100,6 +101,7 @@ class Viewshed():
                                                out_global_mem,
                                                translation_matrix,
                                                cuda.to_device(poi_coords),
+                                               road_raster,
                                                np.int16(self.max_dist),
                                                np.int16(1),
                                                np.int16(1),
@@ -132,8 +134,9 @@ class Viewshed():
             blockspergrid_x = int(math.ceil(array.shape[0] / 32))
             memset_k_1d[blockspergrid_x, 32](array, val)
 
-    def parallel_cumulative_buildings_vs(self, raster, translation_matrix, n_points, coords_lists, poi_elev, tgt_elev, poi_elev_type):
+    def parallel_cumulative_buildings_vs(self, raster, translation_matrix, road_raster, coords_lists, poi_elev, tgt_elev, poi_elev_type):
         self.ctx.memory_manager.reset()
+        n_points = np.count_nonzero(road_raster)
         output = np.zeros(shape=(n_points, len(coords_lists)), dtype=np.uint8)
         output_cuda = cuda.to_device(output)
         for idx, c_list in enumerate(tqdm(coords_lists)):
@@ -163,6 +166,7 @@ class Viewshed():
                                                                       out_global_mem,
                                                                       cu_translation_matrix,
                                                                       cu_coords,
+                                                                      road_raster,
                                                                       np.int16(
                                                                           self.max_dist),
                                                                       np.int16(
@@ -176,14 +180,14 @@ class Viewshed():
                                                                           tgt_elev),
                                                                       poi_elev_type)
 
-                logical_or_axis_k[n_points, 1](
+                max_axis_k[n_points, 1](
                     out_global_mem, output_cuda, idx)
                 self.set_memory(out_global_mem, 0)
 
         return output_cuda
 
     def gen_translation_matrix(self, road_mask):
-        area = int(road_mask.sum() + 1)
+        area = int(np.count_nonzero(road_mask)+1)
         translation_matrix = np.zeros(shape=road_mask.shape, dtype=np.uint32)
         inverse_matrix = np.zeros(shape=(area, 2), dtype=np.uint32)
         count = 1
@@ -193,7 +197,6 @@ class Viewshed():
                     translation_matrix[i, j] = count
                     inverse_matrix[count] = [i, j]
                     count += 1
-
         return translation_matrix, inverse_matrix
 
     def translate_viewshed(self, linear_vs, inverse_matrix, size):

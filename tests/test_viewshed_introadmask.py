@@ -8,40 +8,20 @@ sys.path.append('.')
 
 
 class TestViewshed(unittest.TestCase):
-    def test_single_viewshed(self):
-        vs = Viewshed(1000)
-        dsm = np.zeros((10, 10))
-        poi_coords = [0, 0]
-        poi_elev, tgt_elev = (1, 1)
-        viewshed = vs.single_viewshed(
-            dsm, poi_coords, poi_elev, tgt_elev, 0).copy_to_host()
-        assert np.array_equal(viewshed, np.ones_like(dsm))
-
-        dsm[:, 5] = 2
-        viewshed = vs.single_viewshed(
-            dsm, poi_coords, poi_elev, tgt_elev, 0).copy_to_host()
-        result = np.ones_like(dsm)
-        result[:, 6:] = 0
-        assert np.array_equal(viewshed, result)
-        dsm[:, :] = 0
-        viewshed = vs.single_viewshed(dsm, poi_coords, 1, -2, 0).copy_to_host()
-
-        result = np.zeros_like(dsm)
-        result[poi_coords[0], poi_coords[1]] = 1
-        assert np.array_equal(viewshed, result)
 
     def test_road_mask(self):
         vs = Viewshed(1000)
         dsm = np.zeros((10, 10))
         dsm[:, 5] = 2
         road_mask = np.zeros_like(dsm)
-        road_mask[1, :] = 1
-        road_mask[3, :] = 1
+        road_mask[1, :] = 2
+        road_mask[3, :] = 2
         transmat, inv_transmat = vs.gen_translation_matrix(road_mask)
-        res1 = np.where(transmat > 0, 1, 0)
+        assert(len(inv_transmat) == len(road_mask[road_mask!=0])+1)
+        res1 = np.where(transmat > 0, 2, 0)
         assert np.array_equal(res1, road_mask)
         for coords in inv_transmat[1:]:
-            assert road_mask[coords[0], coords[1]] == 1.0
+            assert road_mask[coords[0], coords[1]] == 2.0
 
     def test_parallel_translated_viewsheds_single(self):
         vs = Viewshed(1000)
@@ -50,8 +30,8 @@ class TestViewshed(unittest.TestCase):
         poi_elev = 1
         tgt_elev = 1
         road_mask = np.zeros_like(dsm, dtype=np.uint8)
-        road_mask[1, :] = 1
-        road_mask[3, :] = 1
+        road_mask[1, :] = 2
+        road_mask[3, :] = 6
         transmat, inv_transmat = vs.gen_translation_matrix(road_mask)
         dsm[:, 5] = 2
         t_vs = vs.parallel_viewsheds_translated(
@@ -70,8 +50,8 @@ class TestViewshed(unittest.TestCase):
         poi_elev = 1
         tgt_elev = 1
         road_mask = np.zeros_like(dsm, dtype=np.uint8)
-        road_mask[1, :] = 1
-        road_mask[3, :] = 1
+        road_mask[1, :] = 5
+        road_mask[3, :] = 2
         transmat, inv_transmat = vs.gen_translation_matrix(road_mask)
         dsm[:, 5] = 2
 
@@ -100,8 +80,8 @@ class TestViewshed(unittest.TestCase):
         poi_elev = 1
         tgt_elev = 1
         road_mask = np.zeros_like(dsm, dtype=np.uint8)
-        road_mask[1, :] = 1
-        road_mask[3, :] = 1
+        road_mask[1, :] = 3
+        road_mask[3, :] = 2
         transmat, inv_transmat = vs.gen_translation_matrix(road_mask)
         dsm[:, 5] = 2
         t_vs = vs.parallel_viewsheds_translated(
@@ -134,35 +114,11 @@ class TestViewshed(unittest.TestCase):
         viewsheds_res = np.zeros_like(cum_viewshed)
         for i, coords in enumerate(coords_lists):
             viewshed = vs.parallel_viewsheds_translated(
-                dsm, coords, transmat,road_mask, poi_elev, tgt_elev, 0).copy_to_host()
+                dsm, coords, transmat, road_mask, poi_elev, tgt_elev, 0).copy_to_host()
             for j in range(len(coords)):
-                viewsheds_res[:, i] = np.bitwise_or(
-                    viewsheds_res[:, i], viewshed[:, j])
+                viewsheds_res[:, i] += viewshed[:, j]
 
         assert np.array_equal(viewsheds_res, cum_viewshed)
-        #This test fails since we modified the cumulaive_building_vs to do sum instead of bitwise or
-
-    def test_memset_2d(self):
-        vs = Viewshed(1000)
-        array = cuda.device_array(shape=(1000, 1000), dtype=np.uint32)
-        vs.set_memory(array, 0)
-        res = array.copy_to_host()
-        assert np.array_equal(res, np.zeros_like(res))
-
-    def test_memset_1d(self):
-        vs = Viewshed(1000)
-        array = cuda.device_array(shape=(1000), dtype=np.uint32)
-        vs.set_memory(array, 0)
-        res = array.copy_to_host()
-        assert np.array_equal(res, np.zeros_like(res))
-
-    def test_memset_small(self):
-        vs = Viewshed(1000)
-        array = cuda.device_array(shape=(10), dtype=np.uint32)
-        vs.set_memory(array, 0)
-        res = array.copy_to_host()
-        assert np.array_equal(res, np.zeros_like(res))
-
 
 if __name__ == '__main__':
     unittest.main()

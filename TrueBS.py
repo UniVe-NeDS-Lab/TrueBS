@@ -46,8 +46,9 @@ class TrueBS():
         self.conn = create_engine(self.DSN)
         self.building_mask = rio.open(
             f"{self.raster_dir}/{self.comune.lower()}_buildings_mask.tif", crs=self.crs)
-        self.road_mask = rio.open(
-            f"{self.raster_dir}/{self.comune.lower()}_roads_mask.tif", crs=self.crs)
+        # self.road_mask = rio.open(
+        #     f"{self.raster_dir}/{self.comune.lower()}_roads_mask.tif", crs=self.crs)
+        self.road_mask = rio.open(f"car_raster_bool.tif", crs=self.crs)
         with open(f'{self.comune.lower()}.csv') as sacsv:
             self.subareas_csv = list(csv.reader(sacsv, delimiter=','))
         self.big_dsm = rio.open(
@@ -146,7 +147,6 @@ class TrueBS():
                 except IndexError:
                     # Portion of building outside of area
                     continue
-        assert len(coordinates) > 0
         return coordinates
 
     def get_area(self, sub_area_id):
@@ -200,7 +200,7 @@ class TrueBS():
                 break
 
     def gen_translation_matrix(self, road_mask):
-        area = int(road_mask.sum() + 1)
+        area = int(np.count_nonzero(road_mask) + 1)
         translation_matrix = np.zeros(shape=road_mask.shape, dtype=np.uint32)
         inverse_matrix = np.zeros(shape=(area+1, 2), dtype=np.uint32)
         count = 1
@@ -281,7 +281,7 @@ class TrueBS():
         # Check memory availability
         n = len(all_coords)
         total_mem = self.vs.get_memory()  # in bytes
-        raster_size = self.road_mask_crop.sum()
+        raster_size = np.count_nonzero(self.road_mask_crop)
         max_viewsheds = int(total_mem / (raster_size))
         if n >= max_viewsheds:
             print(f"Error, too many points in subarea {sa_id}")
@@ -290,17 +290,14 @@ class TrueBS():
         cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                        all_coords,
                                                        self.translation_matrix,
-                                                       self.road_mask_crop.sum(),
+                                                       self.road_mask_crop,
                                                        0,  # Set poi elev to 0 because we set the height in z
                                                        self.tgt_elev,
                                                        1)
         # Calculate number of BS based on the density and the area size
-        n_bs = int(self.buffered_area.area * 1e-6 * dens)
+        n_bs = int(self.sub_area.area * 1e-6 * dens)
         # Compute set coverage to choose n_bs out of all
-        selected_points = set_cover(cu_mem,
-                                    n_bs,
-                                    k,
-                                    ranking_type)
+        selected_points = set_cover(cu_mem, n_bs),
 
         # Recalculate viewshed only on selected points
         viewsheds = np.zeros(shape=(len(selected_points),
@@ -372,10 +369,10 @@ class TrueBS():
         # Check memory availability
         n = len(all_coords)
         total_mem = self.vs.get_memory()  # in bytes
-        raster_size = self.road_mask_crop.sum()
+        raster_size = np.count_nonzero(self.road_mask_crop)
         max_viewsheds = int(total_mem / (raster_size))
         if n >= max_viewsheds:
-            print(f"Error, too many points in subarea {sa_id}")
+            print(f"Error, too many points in subarea {sa_id} out of {max_viewsheds}")
             return 0
         else:
             print(f"Number of points: {len(all_coords)}")
@@ -384,7 +381,7 @@ class TrueBS():
         cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                        all_coords,
                                                        self.translation_matrix,
-                                                       self.road_mask_crop.sum(),
+                                                       self.road_mask_crop,
                                                        0,
                                                        self.tgt_elev,
                                                        1)
@@ -393,11 +390,8 @@ class TrueBS():
 
         # REAL ALGO
         # For each k calcualte coverage and update covered points
-        n_bs = int(self.buffered_area.area * 1e-6 * dens)
-        selected_points = set_cover(cu_mem,
-                                    n_bs,
-                                    k,
-                                    ranking_type)
+        n_bs = int(self.sub_area.area * 1e-6 * dens)
+        selected_points = set_cover(cu_mem, n_bs)
 
         # Recalculate viewshed only on selected points
         viewsheds = np.zeros(shape=(len(selected_points),
@@ -493,16 +487,13 @@ class TrueBS():
         # Calculate cumulative VS for each building (parallely)
         out_mem = self.vs.parallel_cumulative_buildings_vs(self.dataset_raster,
                                                            self.translation_matrix,
-                                                           self.road_mask_crop.sum(),
+                                                           self.road_mask_crop,
                                                            coordinates_lists,
                                                            0,
                                                            self.tgt_elev,
                                                            1)
         # Find the best k buildings
-        selected_buildings = set_cover(out_mem,
-                                       len(coordinates_lists),
-                                       k,
-                                       ranking_type)
+        selected_buildings = set_cover(out_mem, len(coordinates_lists))
         # Take the osm_id and save to disk the ranking
         b_ids = [buildings[i].osm_id for i in selected_buildings]
         with open(f"{folder}/{ranking_type}/{k}/ranking.txt", 'w') as fw:
@@ -532,16 +523,12 @@ class TrueBS():
                     out_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                                     coords,
                                                                     self.translation_matrix,
-                                                                    self.road_mask_crop.sum(),
+                                                                    self.road_mask_crop,
                                                                     0,
                                                                     self.tgt_elev,
                                                                     1)
                     # For each k calcualte coverage and update covered points
-                    selected_points = set_cover(out_mem,
-                                                self.max_build,
-                                                k,
-                                                ranking_type,
-                                                tqdm_enable=False)
+                    selected_points = set_cover(out_mem, self.max_build, tqdm_enable=False)
                     coordinates_dict[build.osm_id] = [coords[i]
                                                       for i in selected_points]
                 elif len(coords) > 0:
@@ -557,16 +544,13 @@ class TrueBS():
         # Calculate the cumulative viewshed among 5 points per building
         out_mem = self.vs.parallel_cumulative_buildings_vs(self.dataset_raster,
                                                            self.translation_matrix,
-                                                           self.road_mask_crop.sum(),
+                                                           self.road_mask_crop,
                                                            coordinates_lists,
                                                            0,
                                                            self.tgt_elev,
                                                            1)
         # Calculate the buildings' ranking
-        selected_buildings = set_cover(out_mem,
-                                       len(coordinates_lists),
-                                       k,
-                                       ranking_type)
+        selected_buildings = set_cover(out_mem, len(coordinates_lists))
 
         b_ids = [buildings[i].osm_id for i in selected_buildings]
         with open(f"{folder}/{ranking_type}/{k}/ranking_{self.max_build}.txt", 'w') as fw:

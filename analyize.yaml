@@ -1,0 +1,12 @@
+comune: luxemburg
+dens : [15, 45, 75, 105, 135, 165]
+ncovs: [1, 3]
+k: [1]
+ranking_type: r1
+ratio: [4]
+c_ant: 2000
+c_build: 12000 
+strategy: threestep
+cached: False
+dir: /mnt/ric_dais_nfs_maccari/gabriel/results/WONS23/results_cars_bool_fixed
+sub_area: [0]

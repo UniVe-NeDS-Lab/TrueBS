@@ -23,6 +23,23 @@ def logical_or_axis_k(viewsheds, output, idx):
                 output[j, idx] += 1
                 break
 
+@cuda.jit()
+def sum_axis_k(viewsheds, output, idx):
+    j = cuda.grid(1)
+    if j < output.shape[0]:
+        for i in range(viewsheds.shape[1]):
+            output[j, idx] += viewsheds[j, i]
+
+@cuda.jit()
+def max_axis_k(viewsheds, output, idx):
+    j = cuda.grid(1)
+    if j < output.shape[0]:
+        max_v = 0
+        for i in range(viewsheds.shape[1]):
+            if viewsheds[j, i] > max_v:
+                max_v = viewsheds[j, i]
+        output[j, idx] = max_v
+
 
 @cuda.jit()
 def memset_k(array, val):
@@ -195,7 +212,7 @@ def viewshed_k(dsm, out, poi, max_dist,  width_resol, height_resol, poi_elev, tg
 
 
 @cuda.jit()
-def parallel_viewshed_t_k(dsm, out, translation_matrix, coords, max_dist,  width_resol, height_resol, poi_elev, tgt_elev, poi_elev_type):
+def parallel_viewshed_t_k(dsm, out, translation_matrix, coords, road_raster, max_dist,  width_resol, height_resol, poi_elev, tgt_elev, poi_elev_type):
     p_offset = cuda.shared.array(shape=(threads_n), dtype=types.float32)
     p_id = cuda.shared.array(
         shape=(threads_n, 2), dtype=types.int32)
@@ -352,7 +369,7 @@ def parallel_viewshed_t_k(dsm, out, translation_matrix, coords, max_dist,  width
         if(tilt_ant <= max_tilt):
             if point_consider:
                 if translated_id > 0:
-                    out[translated_id-1, tidz] = 1
+                    out[translated_id-1, tidz] = road_raster[p1]
         if(tilt_land < max_tilt):
             max_tilt = tilt_land
 

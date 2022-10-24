@@ -347,6 +347,7 @@ class TrueBS():
             selected_buildings = fr.read().split(', ')
             n_buildings = int(len(self.buildings)*ratio/100)
             if n_buildings > len(selected_buildings):
+                print(f'{self.base_dir}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt')
                 print(f"Don't have so much buildings in ranking {n_buildings} {len(selected_buildings)}")
             else:
                 selected_buildings_ids = selected_buildings[:n_buildings]
@@ -509,9 +510,9 @@ class TrueBS():
                 coordinates_lists = []
                 for idx, build in enumerate(buildings):
                     coordinates_lists.append(coordinates_dict[build.osm_id])
-                print("Coords taken from cache")
+                print(f"Coords taken from cache {len(coordinates_lists)}")
         except FileNotFoundError:
-            print("Coords not taken from cache")
+            print("Coords not taken from cache ")
             coordinates_dict = {}
             coordinates_lists = []
             for idx, build in enumerate(tqdm(buildings)):
@@ -542,6 +543,7 @@ class TrueBS():
             with open(f"{folder}/coords_ranked.dat", 'wb') as fw:
                 pickle.dump(coordinates_dict, fw)
         # Calculate the cumulative viewshed among 5 points per building
+        print(f"Now computing parallel viewshed... {len(coordinates_lists)}")
         out_mem = self.vs.parallel_cumulative_buildings_vs(self.dataset_raster,
                                                            self.translation_matrix,
                                                            self.road_mask_crop,
@@ -550,10 +552,13 @@ class TrueBS():
                                                            self.tgt_elev,
                                                            1)
         # Calculate the buildings' ranking
+        print(f"Now computing set cover... {len(coordinates_lists)}")
         selected_buildings = set_cover(out_mem, len(coordinates_lists))
 
         b_ids = [buildings[i].osm_id for i in selected_buildings]
+
         with open(f"{folder}/{ranking_type}/{k}/ranking_{self.max_build}.txt", 'w') as fw:
+            print(f"Saving ranking with {len(b_ids)} buildings")
             fw.write(', '.join(b_ids))
 
     def network(self):

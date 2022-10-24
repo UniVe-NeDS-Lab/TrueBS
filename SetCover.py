@@ -37,6 +37,7 @@ def set_cover(viewsheds, n, tqdm_enable=True):
                 jstar = j
         if jstar >= 0:
             L.append(jstar)
+            print(len(L))
         update_coverage[viewsheds.shape[0], 1](viewsheds, covered_points, jstar)
     return L
 

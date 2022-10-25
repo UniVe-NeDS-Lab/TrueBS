@@ -48,7 +48,7 @@ class TrueBS():
             f"{self.raster_dir}/{self.comune.lower()}_buildings_mask.tif", crs=self.crs)
         # self.road_mask = rio.open(
         #     f"{self.raster_dir}/{self.comune.lower()}_roads_mask.tif", crs=self.crs)
-        self.road_mask = rio.open(f"car_raster_bool.tif", crs=self.crs)
+        self.road_mask = rio.open(f"car_raster.tif", crs=self.crs)
         with open(f'{self.comune.lower()}.csv') as sacsv:
             self.subareas_csv = list(csv.reader(sacsv, delimiter=','))
         self.big_dsm = rio.open(
@@ -284,7 +284,7 @@ class TrueBS():
         raster_size = np.count_nonzero(self.road_mask_crop)
         max_viewsheds = int(total_mem / (raster_size))
         if n >= max_viewsheds:
-            print(f"Error, too many points in subarea {sa_id}")
+            print(f"Error, too many points in subarea {sa_id} {n} out of {max_viewsheds}")
             return 0
         # Calculate parallel viewsheds for all points, and save them in compressed array (only points on street)
         cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,

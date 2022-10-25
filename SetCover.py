@@ -32,12 +32,11 @@ def set_cover(viewsheds, n, tqdm_enable=True):
         set_memory(ranks, 0)
         fi_rank_update[viewsheds.shape[1], 1](viewsheds, covered_points, ranks)
         for j, ri in enumerate(ranks):
-            if ri > r_max and j not in L:
+            if ri >= r_max and j not in L:
                 r_max = ri
                 jstar = j
         if jstar >= 0:
             L.append(jstar)
-            print(len(L))
         update_coverage[viewsheds.shape[0], 1](viewsheds, covered_points, jstar)
     return L
 

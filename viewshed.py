@@ -71,7 +71,11 @@ class Viewshed():
         poi_elev_type: this value specifies if the height of the point of interest must be taken from poi_coords[:,2] or from poi_elev
         '''
         n_points = np.count_nonzero(road_raster)
-        assert n_points == translation_matrix.max()
+        try:
+            assert n_points == translation_matrix.max()
+        except:
+            print(f"{n_points}=!{translation_matrix.max()}")
+            exit(1)
         if poi_elev_type == 1:
             assert len(poi_coords[0]) == 3
             assert poi_elev == 0

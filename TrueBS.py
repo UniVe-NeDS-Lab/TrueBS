@@ -42,13 +42,14 @@ class TrueBS():
         self.buildings_table = args.buildings_table
         self.strategy = args.strategy
         self.dump_viewsheds = args.dump_viewsheds
+        self.cars = args.cars
 
         self.conn = create_engine(self.DSN)
         self.building_mask = rio.open(
             f"{self.raster_dir}/{self.comune.lower()}_buildings_mask.tif", crs=self.crs)
-        # self.road_mask = rio.open(
-        #     f"{self.raster_dir}/{self.comune.lower()}_roads_mask.tif", crs=self.crs)
-        self.road_mask = rio.open(f"car_raster.tif", crs=self.crs)
+        self.road_mask = rio.open(
+            f"{self.raster_dir}/{self.comune.lower()}_roads_mask.tif", crs=self.crs)
+        self.car_raster = rio.open(f"car_raster.tif", crs=self.crs)
         with open(f'{self.comune.lower()}.csv') as sacsv:
             self.subareas_csv = list(csv.reader(sacsv, delimiter=','))
         self.big_dsm = rio.open(
@@ -159,12 +160,18 @@ class TrueBS():
                 # Crop the road mask using the buffer area
                 self.road_mask_crop, rm_transform = rio.mask.mask(
                     self.road_mask, [self.buffered_area], crop=True, indexes=1)
+                self.car_raster_crop, cr_transform = rio.mask.mask(
+                    self.car_raster, [self.buffered_area], crop=True, indexes=1)
                 # Generate the transformation matrixes and save them
-                self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
-                    self.road_mask_crop)
-                os.makedirs(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sub_area_id}', exist_ok=True)
-                np.save(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/translation_matrix', self.translation_matrix)
-                np.save(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
+                if self.cars:
+                    self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
+                        self.car_raster_crop)
+                else:
+                    self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
+                        self.road_mask_crop)
+                os.makedirs(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sub_area_id}', exist_ok=True)
+                np.save(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/translation_matrix', self.translation_matrix)
+                np.save(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
                 # Crop and save DSM
                 raster, transform1 = rio.mask.mask(
                     self.big_dsm, [self.buffered_area], crop=True, indexes=1)
@@ -249,105 +256,16 @@ class TrueBS():
         semipositive = array[array >= 0]
         np.savetxt(f"{folder}/viewshed.csv", semipositive, fmt='%d')
 
-    def twostep_heuristic_tnsm(self, sa_id, ratio, dens, k, ranking_type):
-        folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
-        os.system(f'mkdir -p {folder}')
-
-        # Load building ranking
-        if ratio < 100:
-            with open(f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/ranking.txt', 'r') as fr:
-                selected_buildings = fr.read().split(', ')
-                n_buildings = int(len(self.buildings)*ratio/100)
-                if n_buildings > len(selected_buildings):
-                    print("Don't have so much buildings in ranking")
-                else:
-                    selected_buildings_ids = selected_buildings[:n_buildings]
-                    selected_buildings = [self.get_building(
-                        id) for id in selected_buildings_ids]
-        else:
-            selected_buildings_ids = [b.osm_id for b in self.buildings]
-            selected_buildings = [self.get_building(id) for id in selected_buildings_ids]
-
-        # Get coordinates for the choosen buildings
-        all_coords = []
-        all_buildings = {}
-        for build in selected_buildings:
-            for c in self.get_border_points(build):
-                conv_c = self.convert_coordinates(c)
-                if conv_c[0] > 0 and conv_c[1] > 0:
-                    all_coords.append(conv_c)
-                    all_buildings[(conv_c[0], conv_c[1])] = build.osm_id
-
-        # Check memory availability
-        n = len(all_coords)
-        total_mem = self.vs.get_memory()  # in bytes
-        raster_size = np.count_nonzero(self.road_mask_crop)
-        max_viewsheds = int(total_mem / (raster_size))
-        if n >= max_viewsheds:
-            print(f"Error, too many points in subarea {sa_id} {n} out of {max_viewsheds}")
-            return 0
-        # Calculate parallel viewsheds for all points, and save them in compressed array (only points on street)
-        cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
-                                                       all_coords,
-                                                       self.translation_matrix,
-                                                       self.road_mask_crop,
-                                                       0,  # Set poi elev to 0 because we set the height in z
-                                                       self.tgt_elev,
-                                                       1)
-        # Calculate number of BS based on the density and the area size
-        n_bs = int(self.sub_area.area * 1e-6 * dens)
-        # Compute set coverage to choose n_bs out of all
-        selected_points = set_cover(cu_mem, n_bs),
-
-        # Recalculate viewshed only on selected points
-        viewsheds = np.zeros(shape=(len(selected_points),
-                                    self.dataset_raster.shape[0],
-                                    self.dataset_raster.shape[1]),
-                             dtype=np.uint8)
-        index = []
-        for idx, p_i in enumerate(selected_points):
-            # Retrieve coords and building of this viewshed and save them
-            coord = all_coords[p_i]
-            coord_3003 = self.dataset.xy(*coord[:2])
-            build = all_buildings[coord[0], coord[1]]
-            index.append([coord[0], coord[1], coord[2],
-                          coord_3003[0], coord_3003[1], build, p_i])
-            # compute viewshed from this point
-            viewsheds[idx] = self.vs.single_viewshed(self.dataset_raster,
-                                                     coord,
-                                                     self.poi_elev,
-                                                     self.tgt_elev,
-                                                     1).copy_to_host()
-
-        global_viewshed = viewsheds.sum(axis=0)
-        used_buildings = set(
-            [all_buildings[(all_coords[p_i][0], all_coords[p_i][1])] for p_i in selected_points])
-
-        # Save result
-        nodata_result = np.where(
-            self.road_mask_crop == 0, -128, global_viewshed)
-        self.save_results(folder, nodata_result)
-        if self.dump_viewsheds:
-            np.save(f'{folder}/viewsheds', viewsheds)
-        # Save metrics
-        with open(f'{folder}/metrics.csv', 'w') as fw:
-            print(
-                f"{len(self.buildings)} {len(selected_buildings)} {len(used_buildings)} {len(selected_points)}", file=fw)
-        # Save index
-        with open(f'{folder}/index.csv', 'w') as fw:
-            for r in index:
-                print(" ".join(map(str, r)), file=fw)
-
     def threestep_heuristic_tnsm(self, sa_id, ratio, dens, k, ranking_type):
-        folder = f'{self.base_dir}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
+        folder = f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
         os.system(f'mkdir -p {folder}')
 
         # Load ranking of buildings
-        with open(f'{self.base_dir}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt', 'r') as fr:
+        with open(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt', 'r') as fr:
             selected_buildings = fr.read().split(', ')
             n_buildings = int(len(self.buildings)*ratio/100)
             if n_buildings > len(selected_buildings):
-                print(f'{self.base_dir}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt')
+                print(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt')
                 print(f"Don't have so much buildings in ranking {n_buildings} {len(selected_buildings)}")
             else:
                 selected_buildings_ids = selected_buildings[:n_buildings]
@@ -355,7 +273,7 @@ class TrueBS():
                 #     id) for id in selected_buildings_ids]
 
         # Load coordinates dict
-        with open(f"{self.base_dir}/{self.comune.lower()}/threestep/{sa_id}/coords_ranked.dat", 'rb') as fr:
+        with open(f"{self.base_dir}_{self.cars}/{self.comune.lower()}/threestep/{sa_id}/coords_ranked.dat", 'rb') as fr:
             coordinates_lists = pickle.load(fr)
 
         # Pick buildings
@@ -382,7 +300,7 @@ class TrueBS():
         cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                        all_coords,
                                                        self.translation_matrix,
-                                                       self.road_mask_crop,
+                                                       self.car_raster_crop if self.cars else self.road_mask_crop,
                                                        0,
                                                        self.tgt_elev,
                                                        1)
@@ -467,41 +385,8 @@ class TrueBS():
                             self.twostep_ranking(self.buildings, sa_id, k, rt)
                     i = i+1
 
-    def single_ranking(self, buildings, sa_id, k, ranking_type):
-        folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}'
-        os.makedirs(f"{folder}/{ranking_type}/{k}", exist_ok=True)
-        # Try to load from cache
-        try:
-            with open(f"{folder}/coords.dat", 'rb') as fr:
-                coordinates_lists = pickle.load(fr)
-                print("Coords taken from cache")
-        except:
-            print("Coords not taken from cache")
-            coordinates_lists = []
-            for idx, build in enumerate(buildings):
-                # get border points and transform from epsg 3003 to local coords of big raster
-                coords = [self.convert_coordinates(
-                    c) for c in self.get_border_points(build)]
-                coordinates_lists.append(coords)
-            with open(f"{folder}/coords.dat", 'wb') as fw:
-                pickle.dump(coordinates_lists, fw)
-        # Calculate cumulative VS for each building (parallely)
-        out_mem = self.vs.parallel_cumulative_buildings_vs(self.dataset_raster,
-                                                           self.translation_matrix,
-                                                           self.road_mask_crop,
-                                                           coordinates_lists,
-                                                           0,
-                                                           self.tgt_elev,
-                                                           1)
-        # Find the best k buildings
-        selected_buildings = set_cover(out_mem, len(coordinates_lists))
-        # Take the osm_id and save to disk the ranking
-        b_ids = [buildings[i].osm_id for i in selected_buildings]
-        with open(f"{folder}/{ranking_type}/{k}/ranking.txt", 'w') as fw:
-            fw.write(', '.join(b_ids))
-
     def twostep_ranking(self, buildings, sa_id, k, ranking_type):
-        folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}'
+        folder = f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sa_id}'
         os.makedirs(f"{folder}/{ranking_type}/{k}", exist_ok=True)
         # Try to load coords from cache
         try:
@@ -524,7 +409,7 @@ class TrueBS():
                     out_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                                     coords,
                                                                     self.translation_matrix,
-                                                                    self.road_mask_crop,
+                                                                    self.car_raster_crop if self.cars else self.road_mask_crop,
                                                                     0,
                                                                     self.tgt_elev,
                                                                     1)
@@ -546,7 +431,7 @@ class TrueBS():
         print(f"Now computing parallel viewshed... {len(coordinates_lists)}")
         out_mem = self.vs.parallel_cumulative_buildings_vs(self.dataset_raster,
                                                            self.translation_matrix,
-                                                           self.road_mask_crop,
+                                                           self.car_raster_crop if self.cars else self.road_mask_crop,
                                                            coordinates_lists,
                                                            0,
                                                            self.tgt_elev,
@@ -578,7 +463,7 @@ class TrueBS():
 
     def connect_network(self, sa_id, ratio, dens, k, ranking_type):
         # Generate the intervisibility graph
-        folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
+        folder = f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
         indexes = pd.read_csv(f'{folder}/index.csv', delimiter=' ', header=None, names=['x', 'y', 'z', 'x_3003', 'y_3003', 'building_id', 'p_id'])
         indexes.reset_index(inplace=True) #Keep the id inside of the df
         coordinates = indexes[['x', 'y', 'z']].values
@@ -628,6 +513,7 @@ if __name__ == '__main__':
     parser.add_argument("-k", '--k', required=True, type=int, action='append')
     parser.add_argument("-mb", '--max_build',
                         required=False, type=int, default=5)
+    parser.add_argument("--cars", action='store_true')
     parser.add_argument("--ranking", action='store_true')
     parser.add_argument("--optimal_locations", action='store_true')
     parser.add_argument("--network", action='store_true')

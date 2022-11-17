@@ -146,7 +146,7 @@ class TrueBS():
                 except IndexError:
                     # Portion of building outside of area
                     continue
-        assert len(coordinates) > 0
+        #assert len(coordinates) > 0
         return coordinates
 
     def get_area(self, sub_area_id):
@@ -587,6 +587,18 @@ class TrueBS():
                                 self.connect_network(sa_id, ratio, dens, k, rt)
                             i += 1
 
+    def calc_visibility_metric_bs(self, folder):
+        viewsheds = np.load(f'{folder}/viewsheds.npy')
+        print(viewsheds.shape)
+        tot = np.sum(viewsheds, axis=0)
+        weights = {}
+        for i in range(viewsheds.shape[0]):
+            weights[i] = {'demand': np.sum(viewsheds[i]), 
+                          'weighted_demand': np.nansum(viewsheds[i] / tot)}
+        return weights
+
+
+
     def connect_network(self, sa_id, ratio, dens, k, ranking_type):
         # Generate the intervisibility graph
         folder = f'{self.base_dir}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
@@ -596,8 +608,14 @@ class TrueBS():
         vis_mat = self.vs.generate_intervisibility_fast(self.dataset_raster, coordinates)
         vg = nx.from_numpy_matrix(vis_mat)
         nx.set_node_attributes(vg, indexes.to_dict('index'))
+        
+        #Add distance
         for src, dst in vg.edges():
             vg[src][dst]['distance'] = np.linalg.norm(coordinates[dst]-coordinates[src])
+
+        #Add metric for number of m2 seen by each bs
+        demand_dict = self.calc_visibility_metric_bs(folder)
+        nx.set_node_attributes(vg, demand_dict)
 
         nx.write_graphml(vg, f'{folder}/visibility.graphml.gz')
 
@@ -648,6 +666,7 @@ if __name__ == '__main__':
     parser.add_argument("--dump_viewsheds", action='store_true')
 
     args = parser.parse_args()
+
 
     tn = TrueBS(args)
 

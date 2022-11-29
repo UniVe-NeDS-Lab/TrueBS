@@ -2,10 +2,11 @@ from numba import cuda
 import math
 import numpy as np
 from tqdm import tqdm
-from kernels import memset_k_1d, memset_k
+from kernels import *
 from numba.core.errors import NumbaPerformanceWarning
 import warnings
-
+import cupy
+import time
 
 warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 
@@ -21,10 +22,15 @@ def fix_rank(str):
         return 3
 
 
-def set_cover(viewsheds, n, k, type, tqdm_enable=True):
+def set_cover(viewsheds, n, k, type, vg_np, tqdm_enable=True):
     covered_points = cuda.to_device(
         np.zeros(shape=(viewsheds.shape[0]), dtype=np.uint8))
     L = []
+    n = vg_np.shape[0]
+    c_graph = cuda.to_device(vg_np)
+    c_subgraph = cuda.to_device(np.zeros(shape=(n,n,n), dtype=np.uint8))
+    c_temp = cuda.to_device(np.zeros(shape=(n,n,n), dtype=np.uint8))
+    c_lapl = cuda.to_device(np.zeros(shape=(n,n,n), dtype=np.int32))
     for i in tqdm(range(n)) if tqdm_enable else range(n):
         r_max = 0
         r_min = np.inf
@@ -33,6 +39,8 @@ def set_cover(viewsheds, n, k, type, tqdm_enable=True):
         set_memory(ranks, 0)
         fi_rank_update[viewsheds.shape[1], 1](
             viewsheds, covered_points, ranks, k, fix_rank(type))
+        cu_add_all_node(c_graph, c_temp, c_subgraph)
+
         if type != 'rlc':
             for j, ri in enumerate(ranks):
                 if ri > r_max and j not in L:
@@ -43,72 +51,81 @@ def set_cover(viewsheds, n, k, type, tqdm_enable=True):
                 if ri < r_min and j not in L:
                     r_min = ri
                     jstar = j
-
+        if i > 10:
+            eig = cu_connectivity(c_subgraph, c_lapl)
+            break
+            #print(eig)
+        
         if jstar >= 0:
             L.append(jstar)
+            copy_mat[c_graph.shape, (1,1)](jstar, c_temp, c_subgraph)
+        #update graph
+        
+        #update ground coverage
         update_coverage[viewsheds.shape[0], 1](
             viewsheds, covered_points, jstar, k)
-    return L
 
-
-def set_cover_faster(viewsheds, n, k, type, tqdm_enable=True):
-    covered_points = cuda.to_device(
-        np.zeros(shape=(viewsheds.shape[0]), dtype=np.uint8))
-    L = []
-    threadsperblock = (32, 32)
-    blockspergrid_x = math.ceil(viewsheds.shape[0] / threadsperblock[1])
-    blockspergrid_y = math.ceil(viewsheds.shape[1] / threadsperblock[0])
-    blockspergrid = (blockspergrid_x, blockspergrid_y)
-    for i in tqdm(range(n)) if tqdm_enable else range(n):
-        r = 0
-        jstar = -1
-        ranks = cuda.device_array(shape=viewsheds.shape[1], dtype=np.float32)
-        set_memory(ranks, 0)
-        if type == 'r1':
-            fast_r1_rank_update[blockspergrid, threadsperblock](
-                viewsheds, covered_points, ranks, k)
-        elif type == 'r2':
-            fast_r2_rank_update[blockspergrid, threadsperblock](
-                viewsheds, covered_points, ranks, k)
-        elif type == 'fi':
-            sum1 = cuda.device_array(
-                shape=viewsheds.shape[1], dtype=np.float32)
-            sum2 = cuda.device_array(
-                shape=viewsheds.shape[1], dtype=np.float32)
-            set_memory(sum1, 0)
-            set_memory(sum2, 0)
-            fast_fi_rank_update[blockspergrid, threadsperblock](
-                viewsheds, covered_points, sum1, sum2, k)
-            fast_fi_calc[viewsheds.shape[0], 1](
-                sum1, sum2, ranks, k, viewsheds.shape[1])
-        for j, ri in enumerate(ranks):
-            if ri > r and j not in L:
-                r = ri
-                jstar = j
-        if jstar >= 0:
-            L.append(jstar)
-        update_coverage[viewsheds.shape[0], 1](
-            viewsheds, covered_points, jstar, k)
     return L
 
 
 @cuda.jit()
-def fast_fi_calc(sum1, sum2, ranks, k, m):
-    """
-    Calculate the ranks of the viewsheds
+def copy_row(source, dest):
+    i,j = cuda.grid(2)
+    if j<source.shape[0] and i<source.shape[0]:
+        dest[i,i,j] = source[i,j]
 
-    This function calculates the ranks of the viewsheds using the formula
-    r(i) = k - sum(j) / sum(j) + sum(j) / sum(j)
+@cuda.jit()
+def bitwise_rowcol(source, dest):
+    i,j = cuda.grid(2)
+    if j<source.shape[0] and i<source.shape[0]:
+        dest[i,i,j] = dest[i, j, i] = source[i, i, j] & source[i, j, i] 
 
-    Parameters:
-    sum1 (ndarray): sum of the viewsheds
-    sum2 (ndarray): squared sum of the viewsheds
-    ranks (ndarray): array to store the ranks
-    k (): constant k
-    """
-    i = cuda.grid(1)
-    if i < ranks.shape[0]:
-        ranks[i] = (sum1[i]**2 / (m*sum2[i])) * (sum1[i]/(m*k))
+def cu_add_all_node(source, temp, subgraph):
+    copy_row[source.shape, (1,1)](source, temp)
+    bitwise_rowcol[source.shape, (1,1)](temp, subgraph)
+
+
+def cu_connectivity(subgraph, laplacian):
+    t=time.time()
+    cu_laplacian[subgraph.shape, (1,1)](subgraph, laplacian)
+    t2 = time.time()
+    #l = laplacian.copy_to_host()
+    t3 = time.time()
+    la = cupy.array(laplacian, laplacian.dtype, copy=False)
+    eigv = cupy.linalg.eigvalsh(la)
+    t4 = time.time()
+    print(f'lapl: {t2-t}, copy1: {t3-t2},  copy2: {t4-t3}, eigv: {time.time()-t4}')
+    #print(eigv)
+    #cc = np.zeros(shape=subgraph.shape[0])
+    # for i in range(subgraph.shape[0]):
+    #     for j in range(subgraph.shape[1]):
+    #         if eigv[i,j] > 1e-10:
+    #             cc[i] = j
+    #             break
+    #return cc
+        
+    
+
+@cuda.jit()
+def cu_laplacian(graph, lapl):
+    i,j = cuda.grid(2) #i is the graph index, j is the row index
+    if j<graph.shape[0] and i<graph.shape[0]:
+        d = 0
+        for k in range(graph.shape[0]): #iterate on the row
+            d+=graph[i, j, k]
+            lapl[i,j,k] = -1*graph[i,j,k] #set the negative values
+        lapl[i, j, j] = d  #Set the diagonal equal to the degree
+
+
+
+@cuda.jit()
+def copy_mat(m_i, mat1, mat2):
+    i,j = cuda.grid(2)
+    if j<mat1.shape[1] and i<mat1.shape[2]:
+        for k in range(mat1.shape[0]):
+            if k != m_i:
+                mat1[k,i,j] = mat1[m_i, i, j]
+                mat2[k,i,j] = mat2[m_i, i, j]
 
 
 @cuda.jit()
@@ -135,43 +152,6 @@ def fi_rank_update(viewsheds, covered_points, rank, k, type):
         rank[mat] = sumsq
     elif type == 3:
         rank[mat] = sumrlc
-
-
-@cuda.jit()
-def fast_r1_rank_update(viewsheds, covered_points, rank, k):
-    j, i = cuda.grid(2)
-    if j < viewsheds.shape[0] and i < viewsheds.shape[1]:
-        viewshed_upd = viewsheds[j, i] + covered_points[j]
-        if viewshed_upd > 0:  # Atomic op is costly, better do it only when there's something to sum
-            if viewshed_upd > k:
-                viewshed_upd = k
-            cuda.atomic.add(rank, i, viewshed_upd)
-        # else, viewshed_upd is 0 we don't do anything
-
-
-@cuda.jit()
-def fast_r2_rank_update(viewsheds, covered_points, rank, k):
-    j, i = cuda.grid(2)
-    if j < viewsheds.shape[0] and i < viewsheds.shape[1]:
-        viewshed_upd = viewsheds[j, i] + covered_points[j]
-        if viewshed_upd > 0:  # Atomic op is costly, better do it only when there's something to sum
-            if viewshed_upd > k:
-                viewshed_upd = k
-            cuda.atomic.add(rank, i, viewshed_upd**2)
-        # else, viewshed_upd is 0 we don't do anything
-
-
-@cuda.jit()
-def fast_fi_rank_update(viewsheds, covered_points, sum1, sum2, k):
-    j, i = cuda.grid(2)
-    if j < viewsheds.shape[0] and i < viewsheds.shape[1]:
-        viewshed_upd = viewsheds[j, i] + covered_points[j]
-        if viewshed_upd > 0:  # Atomic op is costly, better do it only when there's something to sum
-            if viewshed_upd > k:
-                viewshed_upd = k
-            cuda.atomic.add(sum1, i, viewshed_upd)
-            cuda.atomic.add(sum2, i, viewshed_upd**2)
-
 
 @cuda.jit()
 def update_coverage(viewsheds, covered_points, selected_mat, k):

@@ -14,6 +14,8 @@ CORNER_OVERLAP: int = 16
 warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 
 
+
+
 @cuda.jit()
 def logical_or_axis_k(viewsheds, output, idx):
     j = cuda.grid(1)

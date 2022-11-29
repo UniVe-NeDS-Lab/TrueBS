@@ -209,7 +209,7 @@ class Viewshed():
         self.raster = raster
         self.dsm_global_mem = cuda.to_device(raster)
         self.building_n = coordinates.shape[0]
-        self.building_list = cuda.to_device(coordinates)
+        self.building_list = cuda.to_device(coordinates.astype(np.int64))
         self.intervisibility_mat = cuda.device_array(shape=(self.building_n,
                                                             self.building_n),
                                                      dtype=np.uint8)
@@ -220,4 +220,4 @@ class Viewshed():
               (threadsperblock, threadsperblock)](self.dsm_global_mem,
                                                   self.building_list,
                                                   self.intervisibility_mat)
-        return self.intervisibility_mat.copy_to_host()
+        return self.intervisibility_mat

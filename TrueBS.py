@@ -371,14 +371,14 @@ class TrueBS():
 
         # Check memory availability
         n = len(all_coords)
-        total_mem = self.vs.get_memory()  # in bytes
-        raster_size = self.road_mask_crop.sum()
-        max_viewsheds = int(total_mem / (raster_size))
-        if n >= max_viewsheds:
-            print(f"Error, too many points in subarea {sa_id}")
-            return 0
-        else:
-            print(f"Number of points: {len(all_coords)}")
+        # total_mem = self.vs.get_memory()  # in bytes
+        # raster_size = self.road_mask_crop.sum()
+        # max_viewsheds = int(total_mem / (raster_size))
+        # if n >= max_viewsheds:
+        #     print(f"Error, too many points in subarea {sa_id}")
+        #     return 0
+        # else:
+        #     print(f"Number of points: {len(all_coords)}")
 
         # Calculate parallel viewsheds for all points, and save them in compressed array (only points on street)
         cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
@@ -388,6 +388,10 @@ class TrueBS():
                                                        0,
                                                        self.tgt_elev,
                                                        1)
+
+        # Calculate visibility graph between all the possible locations
+        vg = self.vs.generate_intervisibility_fast(self.dataset_raster, np.array(all_coords))
+
         # Initialize matrix for coverred points (for maximal set coverage)
         selected_points = []
 
@@ -397,7 +401,8 @@ class TrueBS():
         selected_points = set_cover(cu_mem,
                                     n_bs,
                                     k,
-                                    ranking_type)
+                                    ranking_type,
+                                    vg)
 
         # Recalculate viewshed only on selected points
         viewsheds = np.zeros(shape=(len(selected_points),
@@ -605,7 +610,8 @@ class TrueBS():
         indexes = pd.read_csv(f'{folder}/index.csv', delimiter=' ', header=None, names=['x', 'y', 'z', 'x_3003', 'y_3003', 'building_id', 'p_id'])
         indexes.reset_index(inplace=True) #Keep the id inside of the df
         coordinates = indexes[['x', 'y', 'z']].values
-        vis_mat = self.vs.generate_intervisibility_fast(self.dataset_raster, coordinates)
+        import pdb; pdb.set_trace()
+        vis_mat = self.vs.generate_intervisibility_fast(self.dataset_raster, coordinates).copy_to_host()
         vg = nx.from_numpy_matrix(vis_mat)
         nx.set_node_attributes(vg, indexes.to_dict('index'))
         

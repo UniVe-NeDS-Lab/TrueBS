@@ -23,6 +23,7 @@ import networkx as nx
 class TrueBS():
     def __init__(self, args):
         self.max_dist = args.max_dist
+        self.buffer_dist = args.buffer_dist
         self.vs = Viewshed(max_dist=self.max_dist)
         self.DSN = os.environ['DSN']
         self.srid = args.srid  # TODO: check if it is metric
@@ -155,7 +156,7 @@ class TrueBS():
                 # Read the WKT of this subarea
                 self.sub_area = wkt.loads(row[0])
                 # Create a buffer of max_d / 2 around it
-                self.buffered_area = self.sub_area.buffer(self.max_dist/2)
+                self.buffered_area = self.sub_area.buffer(self.buffer_dist)
                 # Crop the road mask using the buffer area
                 self.road_mask_crop, rm_transform = rio.mask.mask(
                     self.road_mask, [self.buffered_area], crop=True, indexes=1)
@@ -641,6 +642,9 @@ if __name__ == '__main__':
                         type=float,
                         required=False)
     parser.add_argument("-md", "--max_dist", help="maximum distance for LOS communication",
+                        type=float,
+                        required=False)
+    parser.add_argument("-bd", "--buffer_dist", help="buffer distance for LOS communication",
                         type=float,
                         required=False)
     parser.add_argument("-gid", type=int, required=False, action='append')

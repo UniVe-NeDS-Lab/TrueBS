@@ -1,0 +1,36 @@
+raster_dir: /mnt/ric_dais_nfs_maccari/gabriel/data/dtm_fusion
+output: /mnt/ric_dais_nfs_maccari/gabriel/results/ComComVSI/results
+poi_elev: 2
+tgt_elev: 2
+max_dist: 300
+#buffer_dist: 150
+dens : [5,10,15,20,25,30,35,40,45]
+ratio: [100]
+sub_area: [2]
+max_build: 5
+ranking_type: [r1]
+k: [1]
+strategy: threestep
+target: 'sidewalk'
+#, 'roads', 'cars_sumo']
+#dump_viewsheds: true
+mask_results: 0
+
+
+srid: 2169
+comune: luxemburg
+buildings_table: osm_luxemburg_buildings
+
+# srid: 3003
+# comune: firenze
+# buildings_table: osm_buildings_3003
+
+# srid: 3003
+# comune: milano
+# buildings_table: osm_buildings_3003
+
+
+# srid: 25831
+# comune: barcelona
+# buildings_table: osm_buildings_spain
+

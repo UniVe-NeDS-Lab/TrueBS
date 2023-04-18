@@ -42,14 +42,16 @@ class TrueBS():
         self.buildings_table = args.buildings_table
         self.strategy = args.strategy
         self.dump_viewsheds = args.dump_viewsheds
-        self.cars = args.cars
+        self.target = args.target
+        self.mask_results = args.mask_results
+        
 
         self.conn = create_engine(self.DSN)
         self.building_mask = rio.open(
             f"{self.raster_dir}/{self.comune.lower()}_buildings_mask.tif", crs=self.crs)
-        self.road_mask = rio.open(
-            f"{self.raster_dir}/{self.comune.lower()}_roads_mask.tif", crs=self.crs)
-        self.car_raster = rio.open(f"car_raster.tif", crs=self.crs)
+        self.target_mask = rio.open(
+            f"{self.raster_dir}/{self.comune.lower()}_{self.target}_mask.tif", crs=self.crs)
+        # self.car_raster = rio.open(f"car_raster.tif", crs=self.crs)
         with open(f'{self.comune.lower()}.csv') as sacsv:
             self.subareas_csv = list(csv.reader(sacsv, delimiter=','))
         self.big_dsm = rio.open(
@@ -158,20 +160,20 @@ class TrueBS():
                 # Create a buffer of max_d / 2 around it
                 self.buffered_area = self.sub_area.buffer(self.max_dist/2)
                 # Crop the road mask using the buffer area
-                self.road_mask_crop, rm_transform = rio.mask.mask(
-                    self.road_mask, [self.buffered_area], crop=True, indexes=1)
-                self.car_raster_crop, cr_transform = rio.mask.mask(
-                    self.car_raster, [self.buffered_area], crop=True, indexes=1)
+                self.target_mask_crop, rm_transform = rio.mask.mask(
+                    self.target_mask, [self.buffered_area], crop=True, indexes=1)
+                # self.car_raster_crop, cr_transform = rio.mask.mask(
+                #     self.car_raster, [self.buffered_area], crop=True, indexes=1)
                 # Generate the transformation matrixes and save them
-                if self.cars:
-                    self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
-                        self.car_raster_crop)
-                else:
-                    self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
-                        self.road_mask_crop)
-                os.makedirs(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sub_area_id}', exist_ok=True)
-                np.save(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/translation_matrix', self.translation_matrix)
-                np.save(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
+                # if self.cars:
+                self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
+                    self.target_mask_crop)
+                # else:
+                #     self.translation_matrix, self.inv_translation_matrix = self.gen_translation_matrix(
+                #         self.target_mask_crop)
+                os.makedirs(f'{self.base_dir}_{self.target}/{self.comune.lower()}/{self.strategy}/{sub_area_id}', exist_ok=True)
+                np.save(f'{self.base_dir}_{self.target}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/translation_matrix', self.translation_matrix)
+                np.save(f'{self.base_dir}_{self.target}/{self.comune.lower()}/{self.strategy}/{sub_area_id}/inverse_translation_matrix', self.inv_translation_matrix)
                 # Crop and save DSM
                 raster, transform1 = rio.mask.mask(
                     self.big_dsm, [self.buffered_area], crop=True, indexes=1)
@@ -257,15 +259,15 @@ class TrueBS():
         np.savetxt(f"{folder}/viewshed.csv", semipositive, fmt='%d')
 
     def threestep_heuristic_tnsm(self, sa_id, ratio, dens, k, ranking_type):
-        folder = f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
+        folder = f'{self.base_dir}_{self.target}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
         os.system(f'mkdir -p {folder}')
 
         # Load ranking of buildings
-        with open(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt', 'r') as fr:
+        with open(f'{self.base_dir}_{self.target}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt', 'r') as fr:
             selected_buildings = fr.read().split(', ')
             n_buildings = int(len(self.buildings)*ratio/100)
             if n_buildings > len(selected_buildings):
-                print(f'{self.base_dir}_{self.cars}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt')
+                print(f'{self.base_dir}_{self.target}/{self.comune.lower()}/threestep/{sa_id}/{ranking_type}/{k}/ranking_{self.max_build}.txt')
                 print(f"Don't have so much buildings in ranking {n_buildings} {len(selected_buildings)}")
             else:
                 selected_buildings_ids = selected_buildings[:n_buildings]
@@ -273,7 +275,7 @@ class TrueBS():
                 #     id) for id in selected_buildings_ids]
 
         # Load coordinates dict
-        with open(f"{self.base_dir}_{self.cars}/{self.comune.lower()}/threestep/{sa_id}/coords_ranked.dat", 'rb') as fr:
+        with open(f"{self.base_dir}_{self.target}/{self.comune.lower()}/threestep/{sa_id}/coords_ranked.dat", 'rb') as fr:
             coordinates_lists = pickle.load(fr)
 
         # Pick buildings
@@ -288,7 +290,7 @@ class TrueBS():
         # Check memory availability
         n = len(all_coords)
         total_mem = self.vs.get_memory()  # in bytes
-        raster_size = np.count_nonzero(self.road_mask_crop)
+        raster_size = np.count_nonzero(self.target_mask_crop)
         max_viewsheds = int(total_mem / (raster_size))
         if n >= max_viewsheds:
             print(f"Error, too many points in subarea {sa_id} out of {max_viewsheds}")
@@ -300,7 +302,7 @@ class TrueBS():
         cu_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                        all_coords,
                                                        self.translation_matrix,
-                                                       self.car_raster_crop if self.cars else self.road_mask_crop,
+                                                       self.target_mask_crop,
                                                        0,
                                                        self.tgt_elev,
                                                        1)
@@ -340,9 +342,13 @@ class TrueBS():
             [all_buildings[(all_coords[p_i][0], all_coords[p_i][1])] for p_i in selected_points])
 
         # Save result
-        nodata_result = np.where(
-            self.road_mask_crop == 0, -128, global_viewshed)
-        self.save_results(folder, nodata_result)
+        if self.mask_results:
+            print("masking output")
+            nodata_result = np.where(
+                self.target_mask_crop == 0, -128, global_viewshed)
+            self.save_results(folder, nodata_result)
+        else:
+            self.save_results(folder, global_viewshed)
         if self.dump_viewsheds:
             np.save(f'{folder}/viewsheds', viewsheds)
         # Save metrics
@@ -386,7 +392,7 @@ class TrueBS():
                     i = i+1
 
     def twostep_ranking(self, buildings, sa_id, k, ranking_type):
-        folder = f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sa_id}'
+        folder = f'{self.base_dir}_{self.target}/{self.comune.lower()}/{self.strategy}/{sa_id}'
         os.makedirs(f"{folder}/{ranking_type}/{k}", exist_ok=True)
         # Try to load coords from cache
         try:
@@ -409,7 +415,7 @@ class TrueBS():
                     out_mem = self.vs.parallel_viewsheds_translated(self.dataset_raster,
                                                                     coords,
                                                                     self.translation_matrix,
-                                                                    self.car_raster_crop if self.cars else self.road_mask_crop,
+                                                                    self.target_mask_crop,
                                                                     0,
                                                                     self.tgt_elev,
                                                                     1)
@@ -431,7 +437,7 @@ class TrueBS():
         print(f"Now computing parallel viewshed... {len(coordinates_lists)}")
         out_mem = self.vs.parallel_cumulative_buildings_vs(self.dataset_raster,
                                                            self.translation_matrix,
-                                                           self.car_raster_crop if self.cars else self.road_mask_crop,
+                                                           self.target_mask_crop,
                                                            coordinates_lists,
                                                            0,
                                                            self.tgt_elev,
@@ -463,7 +469,7 @@ class TrueBS():
 
     def connect_network(self, sa_id, ratio, dens, k, ranking_type):
         # Generate the intervisibility graph
-        folder = f'{self.base_dir}_{self.cars}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
+        folder = f'{self.base_dir}_{self.target}/{self.comune.lower()}/{self.strategy}/{sa_id}/{ranking_type}/{k}/{ratio}/{dens}'
         indexes = pd.read_csv(f'{folder}/index.csv', delimiter=' ', header=None, names=['x', 'y', 'z', 'x_3003', 'y_3003', 'building_id', 'p_id'])
         indexes.reset_index(inplace=True) #Keep the id inside of the df
         coordinates = indexes[['x', 'y', 'z']].values
@@ -478,7 +484,7 @@ class TrueBS():
 
 if __name__ == '__main__':
     parser = configargparse.ArgumentParser(
-        description='Truenets utility for offline intervisibility', default_config_files=['sim.yaml'])
+        description='Truenets utility for offline intervisibility', default_config_files=['sim.yaml.wons23'])
     parser.add_argument("-c", "--comune",
                         help="Nome del comune da analizzare",
                         required=True)
@@ -513,7 +519,7 @@ if __name__ == '__main__':
     parser.add_argument("-k", '--k', required=True, type=int, action='append')
     parser.add_argument("-mb", '--max_build',
                         required=False, type=int, default=5)
-    parser.add_argument("--cars", action='store_true')
+    parser.add_argument("--target", type=str, default='roads')
     parser.add_argument("--ranking", action='store_true')
     parser.add_argument("--optimal_locations", action='store_true')
     parser.add_argument("--network", action='store_true')
@@ -521,6 +527,7 @@ if __name__ == '__main__':
     parser.add_argument("--buildings_table", type=str, required=True)
     parser.add_argument("--strategy", type=str, required=True)
     parser.add_argument("--dump_viewsheds", action='store_true')
+    parser.add_argument("--mask_results", type=int, default=0)
 
     args = parser.parse_args()
 

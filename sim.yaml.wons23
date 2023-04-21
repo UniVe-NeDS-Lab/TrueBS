@@ -6,14 +6,14 @@ max_dist: 300
 #buffer_dist: 150
 dens : [5,10,15,20,25,30,35,40,45]
 ratio: [100]
-sub_area: [2]
+sub_area: [0]
 max_build: 5
 ranking_type: [r1]
 k: [1]
 strategy: threestep
 target: 'sidewalk'
 #, 'roads', 'cars_sumo']
-#dump_viewsheds: true
+dump_viewsheds: true
 mask_results: 0
 
 

@@ -52,7 +52,7 @@ class TrueBS():
         self.target_mask = rio.open(
             f"{self.raster_dir}/{self.comune.lower()}_{self.target}_mask.tif", crs=self.crs)
         # self.car_raster = rio.open(f"car_raster.tif", crs=self.crs)
-        with open(f'{self.comune.lower()}.csv') as sacsv:
+        with open(f'areas/{self.comune.lower()}.csv') as sacsv:
             self.subareas_csv = list(csv.reader(sacsv, delimiter=','))
         self.big_dsm = rio.open(
             "%s/%s.tif" % (self.raster_dir, self.comune.lower()), crs=self.crs)

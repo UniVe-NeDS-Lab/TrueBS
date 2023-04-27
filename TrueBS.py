@@ -23,7 +23,8 @@ import networkx as nx
 class TrueBS():
     def __init__(self, args):
         self.max_dist = args.max_dist
-        self.vs = Viewshed(max_dist=self.max_dist)
+        self.dtype = np.uint16
+        self.vs = Viewshed(max_dist=self.max_dist, dtype=self.dtype)
         self.DSN = os.environ['DSN']
         self.srid = args.srid  # TODO: check if it is metric
         self.crs = "EPSG:%4d" % (self.srid)
@@ -44,6 +45,7 @@ class TrueBS():
         self.dump_viewsheds = args.dump_viewsheds
         self.target = args.target
         self.mask_results = args.mask_results
+        
         
 
         self.conn = create_engine(self.DSN)
@@ -312,13 +314,13 @@ class TrueBS():
         # REAL ALGO
         # For each k calcualte coverage and update covered points
         n_bs = int(self.sub_area.area * 1e-6 * dens)
-        selected_points = set_cover(cu_mem, n_bs)
+        selected_points = set_cover(cu_mem, n_bs, dtype=self.dtype)
 
         # Recalculate viewshed only on selected points
         viewsheds = np.zeros(shape=(len(selected_points),
                                     self.dataset_raster.shape[0],
                                     self.dataset_raster.shape[1]),
-                             dtype=np.uint8)
+                             dtype=self.dtype)
 
         index = []
         for idx, p_i in enumerate(selected_points):
@@ -420,7 +422,7 @@ class TrueBS():
                                                                     self.tgt_elev,
                                                                     1)
                     # For each k calcualte coverage and update covered points
-                    selected_points = set_cover(out_mem, self.max_build, tqdm_enable=False)
+                    selected_points = set_cover(out_mem, self.max_build, tqdm_enable=False, dtype=self.dtype)
                     coordinates_dict[build.osm_id] = [coords[i]
                                                       for i in selected_points]
                 elif len(coords) > 0:
@@ -444,7 +446,7 @@ class TrueBS():
                                                            1)
         # Calculate the buildings' ranking
         print(f"Now computing set cover... {len(coordinates_lists)}")
-        selected_buildings = set_cover(out_mem, len(coordinates_lists))
+        selected_buildings = set_cover(out_mem, len(coordinates_lists), dtype=self.dtype)
 
         b_ids = [buildings[i].osm_id for i in selected_buildings]
 

@@ -21,27 +21,28 @@ def fix_rank(str):
         return 3
 
 
-def set_cover(viewsheds, n, tqdm_enable=True):
+def set_cover(viewsheds, n, tqdm_enable=True, dtype=np.uint8):
     covered_points = cuda.to_device(
-        np.zeros(shape=(viewsheds.shape[0]), dtype=np.uint8))
+        np.zeros(shape=(viewsheds.shape[0]), dtype=dtype))
+    maxint = np.iinfo(dtype).max
     L = []
     for i in tqdm(range(n)) if tqdm_enable else range(n):
         r_max = 0
         jstar = -1
         ranks = cuda.device_array(shape=viewsheds.shape[1], dtype=np.float32)
         set_memory(ranks, 0)
-        fi_rank_update[viewsheds.shape[1], 1](viewsheds, covered_points, ranks)
+        fi_rank_update[viewsheds.shape[1], 1](viewsheds, covered_points, ranks, maxint)
         for j, ri in enumerate(ranks):
             if ri >= r_max and j not in L:
                 r_max = ri
                 jstar = j
         if jstar >= 0:
             L.append(jstar)
-        update_coverage[viewsheds.shape[0], 1](viewsheds, covered_points, jstar)
+        update_coverage[viewsheds.shape[0], 1](viewsheds, covered_points, jstar, maxint)
     return L
 
 @cuda.jit()
-def fi_rank_update(viewsheds, covered_points, rank):
+def fi_rank_update(viewsheds, covered_points, rank, maxint):
     mat = cuda.grid(1)
     if mat >= viewsheds.shape[1]:
         return
@@ -49,8 +50,8 @@ def fi_rank_update(viewsheds, covered_points, rank):
     m = viewsheds.shape[0]
     for i in range(m):
         viewshed_upd = viewsheds[i, mat] * (not bool(covered_points[i]))
-        if viewshed_upd > 255:  # Bounded sum to 255 #TODO: use dtype.maxint
-            viewshed_upd = 255
+        if viewshed_upd > maxint:  # Bounded sum to maxint (255 or 65536)
+            viewshed_upd = maxint
         summ += viewshed_upd
     
     rank[mat] = summ
@@ -58,11 +59,11 @@ def fi_rank_update(viewsheds, covered_points, rank):
 
 
 @cuda.jit()
-def update_coverage(viewsheds, covered_points, selected_mat):
+def update_coverage(viewsheds, covered_points, selected_mat, maxint):
     i = cuda.grid(1)
     covered_points[i] += viewsheds[i, selected_mat]
-    if covered_points[i] > 255:
-        covered_points[i] = 255  # Bounded sum to k
+    if covered_points[i] > maxint:
+        covered_points[i] = maxint  # Bounded sum to maxint
 
 
 def set_memory(array, val):

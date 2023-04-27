@@ -6,9 +6,10 @@ from tqdm import tqdm
 
 
 class Viewshed():
-    def __init__(self,  max_dist=0):
+    def __init__(self,  max_dist=0, dtype=np.uint8):
         self.max_dist = max_dist
         self.ctx = cuda.current_context()
+        self.dtype = dtype
         # self.reset_memory()
 
     def get_memory(self):
@@ -32,7 +33,7 @@ class Viewshed():
         raster = raster_np
         dsm_global_mem = cuda.to_device(raster_np)  # transfer dsm
         out_global_mem = cuda.device_array(
-            shape=raster_np.shape, dtype=np.uint8)
+            shape=raster_np.shape, dtype=self.dtype)
         self.set_memory(out_global_mem, 0)
         # calculate block size and thread number
         blocks_landscape = (raster.shape[0] +
@@ -83,8 +84,9 @@ class Viewshed():
         n_vs = len(poi_coords)
         # allocate and initialize memory to store viewsheds (to 0s)
         out_global_mem = cuda.device_array(
-            shape=(n_points, n_vs), dtype=np.uint8)
+            shape=(n_points, n_vs), dtype=self.dtype)
         self.set_memory(out_global_mem, 0)
+        
 
         # calculate block size and thread number
         blocks_landscape = (raster_np.shape[0] +
@@ -141,7 +143,7 @@ class Viewshed():
     def parallel_cumulative_buildings_vs(self, raster, translation_matrix, road_raster, coords_lists, poi_elev, tgt_elev, poi_elev_type):
         self.ctx.memory_manager.reset()
         n_points = np.count_nonzero(road_raster)
-        output = np.zeros(shape=(n_points, len(coords_lists)), dtype=np.uint8)
+        output = np.zeros(shape=(n_points, len(coords_lists)), dtype=self.dtype)
         output_cuda = cuda.to_device(output)
         for idx, c_list in enumerate(tqdm(coords_lists)):
             if c_list:
@@ -151,7 +153,7 @@ class Viewshed():
                 building_n = len(c_list)
                 cu_coords = cuda.to_device(c_list)
                 out_global_mem = cuda.device_array(
-                    shape=(n_points, building_n), dtype=np.uint8)
+                    shape=(n_points, building_n), dtype=self.dtype)
                 self.set_memory(out_global_mem, 0)
                 # calculate block size and thread number
                 blocks_landscape = (raster.shape[0] +
@@ -204,7 +206,7 @@ class Viewshed():
         return translation_matrix, inverse_matrix
 
     def translate_viewshed(self, linear_vs, inverse_matrix, size):
-        viewshed = np.zeros(shape=size, dtype=np.uint8)
+        viewshed = np.zeros(shape=size, dtype=self.dtype)
         for idx, e in enumerate(inverse_matrix[1:]):
             viewshed[e[0], e[1]] = linear_vs[idx]
         return viewshed
@@ -219,7 +221,7 @@ class Viewshed():
         self.building_list = cuda.to_device(coordinates)
         self.intervisibility_mat = cuda.device_array(shape=(self.building_n,
                                                             self.building_n),
-                                                     dtype=np.uint8)
+                                                     dtype=self.dtype)
         self.set_memory(self.intervisibility_mat, 0)
         threadsperblock = 16
         blockspergrid_x = int(math.ceil(self.building_n / threadsperblock))

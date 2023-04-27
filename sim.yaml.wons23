@@ -1,5 +1,5 @@
 raster_dir: /mnt/ric_dais_nfs_maccari/gabriel/data/dtm_fusion
-output: /mnt/ric_dais_nfs_maccari/gabriel/results/ComComVSI/results
+output: /mnt/ric_dais_nfs_maccari/gabriel/results/ComComVSITest/results
 poi_elev: 2
 tgt_elev: 2
 max_dist: 300

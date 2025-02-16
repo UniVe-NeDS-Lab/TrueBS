@@ -1,0 +1,12 @@
+sqlalchemy
+configargparse
+rasterio
+numpy
+tqdm
+shapely
+scipy
+geopandas
+networkx
+pandas
+numba
+ipython

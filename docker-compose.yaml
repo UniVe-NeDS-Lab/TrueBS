@@ -1,0 +1,18 @@
+version: "3"
+services:
+
+  truebs:
+    container_name: "truebs"
+    build: 
+      context: .
+    volumes:
+      - ./data:/data
+      - ./results:/app/results
+      - ./sim.yaml:/app/sim.yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
